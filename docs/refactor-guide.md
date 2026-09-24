@@ -1,198 +1,134 @@
-# Refactor Guide & Project Structure
+# Coding Guide
 
-Date: 2026-09-22
-Scope: Code maintainability, structure, and organization. No functional changes proposed.
+This guide describes the engineering practices for Reamify and for agents
+making changes in the repository. It is intentionally independent of any one
+PDF, benchmark run, or refactoring milestone.
 
-## 1. Current state assessment
+## Start with the owning code path
 
-### File inventory
+Before changing code:
 
-| File | Total lines | Code lines | Comment/blank | Code % | Responsibility |
-|---|---:|---:|---:|---:|---|
-| `layout-engine.ts` | 575 | 391 | 184 | 68% | Three-tier extraction, batching, page dimensions, bbox merge |
-| `region-discovery.ts` | 579 | 328 | 251 | 57% | Region clustering, row banding, column inference, titles, outside text, full layout build, header detection, bbox merge |
-| `writer.ts` | 604 | 434 | 170 | 72% | Policy A streaming, Policy A buffer, Policy B streaming, Policy B buffer, legacy writer, PageRows→Layout adapter, policy resolver, header signatures, diagnostics |
-| `types.ts` | 137 | 57 | 80 | 42% | All IR types + options |
-| `pipeline.ts` | 109 | 67 | 42 | 61% | Routing + convertPages |
-| `engine.ts` | 51 | 28 | 23 | 55% | Legacy markdown extraction |
-| `index.ts` | 31 | 23 | 8 | 74% | Re-exports |
-| `parser.ts` | 26 | 17 | 9 | 65% | markdownToRows |
-| **Total** | **2,112** | **1,345** | **767** | **64%** | |
+1. Identify the public API, failing test, or user-visible behavior involved.
+2. Follow the call path to the function that actually computes or mutates the
+   behavior.
+3. Read nearby tests and types before choosing an implementation.
+4. Form one concrete hypothesis about the behavior and one check that could
+   disprove it.
 
-### Problems
+Prefer the smallest change that tests the hypothesis. Do not broaden the
+change merely to make nearby code look more consistent.
 
-1. **Three files exceed 500 lines.** `layout-engine.ts`, `region-discovery.ts`, and `writer.ts` each do too many things. A contributor opening any of them faces a wall of code.
+## Repository boundaries
 
-2. **Responsibility overload.** `region-discovery.ts` handles: coordinate conversion, region clustering, row banding, column inference, column assignment, title identification, outside-text assignment, full page layout construction, header detection, and bbox merging — 10 distinct concerns in one file. `writer.ts` has 4 near-duplicate write paths (Policy A × streaming/buffer, Policy B × streaming/buffer).
+Keep responsibilities aligned with the existing directories:
 
-3. **Comment-to-code ratio is high.** 36% of all lines are comments or blank. Many comments restate what the code does (`// Sort items by x coordinate` above `items.sort((a, b) => a.x - b.x)`). Section banners (`// ---------------------------------------------------------------------------`) add visual noise without conveying information.
+- `src/extract/` converts PDF layout information into the internal table
+  representation.
+- `src/write/` converts extracted pages into XLSX workbooks.
+- `src/legacy/` contains the deprecated markdown-based compatibility path.
+- `src/types.ts` contains shared public and intermediate-representation types.
+- `tests/` mirrors the extraction, writing, and integration boundaries.
+- `docs/` contains durable project documentation.
+- `scripts/` contains reusable diagnostics and development utilities.
+- `eval/` is for local, document-specific investigations and generated
+  artifacts. It is intentionally not part of the published package.
 
-4. **Code duplication.** `mergeBBoxes` is implemented identically in both `region-discovery.ts:568` and `layout-engine.ts:564`. The Tier C inline code in `layout-engine.ts:338-398` is a near-copy of `buildPageLayout` in `region-discovery.ts:408-528`.
+Keep the public barrel and public types deliberate. Preserve existing exports
+and compatibility behavior unless a change explicitly requires an API change.
 
-5. **Flat `src/` directory.** 8 files at the same level with no grouping. The extraction, writing, and IR concerns are not separated by directory.
+## Design principles
 
-6. **Test files mirror the flat structure.** Tests are in one `tests/` directory with no grouping matching the source modules.
+### One responsibility per module
 
-## 2. Proposed project structure
+Keep extraction, layout modeling, post-processing, and workbook writing
+separate. Add a module when it creates a clear ownership boundary, not merely
+to reduce a line count.
 
-```
-src/
-├── index.ts                  # Public API barrel (re-exports only)
-├── convert.ts                # convertPdf, convertPages (thin routing)
-├── types.ts                  # IR types: BBox, TableCell, TableRow, etc.
-│
-├── extract/                  # PDF → PageLayout
-│   ├── index.ts              # extractPdfPagesLayout (batching loop)
-│   ├── tiers.ts              # Tier A/B/C orchestration per region
-│   ├── region.ts             # discoverRegions (x-gap clustering)
-│   ├── rows.ts               # clusterRows (baseline banding)
-│   ├── columns.ts            # inferColumnBoundaries, assignColumn
-│   ├── headers.ts            # header detection (multi-line aware)
-│   ├── text.ts               # identifyTitles, assignOutsideText
-│   └── geometry.ts           # BBox/coordinate utilities shared across extract
-│
-├── write/                    # PageLayout → XLSX
-│   ├── index.ts              # writePagesToWorkbook (dispatcher)
-│   ├── policy.ts             # resolvePolicy, schema equivalence check
-│   ├── per-region.ts         # Policy A writer (streaming + buffer)
-│   ├── stacked.ts            # Policy B writer (streaming + buffer)
-│   └── legacy.ts             # PageRows backward-compat adapter + legacy writer
-│
-└── legacy/                   # Deprecated markdown path
-    ├── engine.ts             # extractPdfPages (markdown-based)
-    └── parser.ts             # markdownToRows
+### Prefer structural signals
 
-tests/
-├── extract/
-│   ├── region.test.ts
-│   ├── rows.test.ts
-│   ├── columns.test.ts
-│   ├── headers.test.ts
-│   └── text.test.ts
-├── write/
-│   ├── per-region.test.ts
-│   ├── stacked.test.ts
-│   ├── policy.test.ts
-│   └── legacy.test.ts
-└── integration/
-    ├── api.test.ts           # Public API + backward compat (current index.test.ts)
-    └── pipeline.test.ts      # End-to-end with synthesized PDFs
-```
+PDF text placement is not a reliable proxy for logical columns. Use bounding
+boxes, row geometry, headers, region structure, and explicit metadata when
+available. Do not infer record boundaries by splitting cell text on spaces.
 
-### Design principles
+### Generalize from document structure
 
-| Principle | Rule |
-|---|---|
-| **One concern per file** | Each file does one thing. `region.ts` only clusters regions. `columns.ts` only infers columns. |
-| **≤150 lines per file** | If a file exceeds 150 lines, split it. The current 580-line files would become 6–8 files of 50–100 lines each. |
-| **No comment restating code** | Remove `// Sort by x` above `.sort((a,b) => a.x - b.x)`. Keep only comments explaining *why*, not *what*. |
-| **No section banners** | File boundaries replace `// --------` separators. Each file's name *is* its section heading. |
-| **No code duplication** | `mergeBBoxes` lives in `geometry.ts`. Tier C calls `buildPageLayout` from `extract/`, not an inline copy. |
-| **Directory = concern** | `extract/` = PDF → IR. `write/` = IR → XLSX. `legacy/` = deprecated path. `types.ts` = shared types. |
-| **Tests mirror source** | `tests/extract/region.test.ts` tests `src/extract/region.ts`. |
+Production logic must work across different page sizes, column counts, region
+layouts, and text widths. Never encode a PDF's page number, names, row count,
+or observed value pattern as a production rule.
 
-## 3. Refactoring sequence
+### Make uncertainty visible
 
-The refactor should be done in small, testable steps. Each step must leave the test suite green.
+When structure cannot be resolved confidently, preserve the source information
+where possible and emit a warning or diagnostic. Do not silently discard a
+region, row, cell, or non-table text.
 
-### Step 1: Extract `geometry.ts`
+### Keep streaming boundaries honest
 
-Move `BBox` utilities (`mergeBBoxes`, `toTopLeftY`, `itemBBox`) from `region-discovery.ts` and `layout-engine.ts` into a shared `src/extract/geometry.ts`. Delete the duplicates. Run tests.
+The Node writing path supports streaming output, but upstream extraction and
+post-processing must also be considered when evaluating memory behavior. Do
+not describe a path as fully streaming unless its intermediate state is
+bounded as well.
 
-### Step 2: Split `region-discovery.ts` into extract modules
+### Avoid duplicate representations
 
-| Current section | New file | Lines (approx) |
-|---|---|---|
-| `discoverRegions`, `buildCluster` | `extract/region.ts` | ~80 |
-| `clusterRows` | `extract/rows.ts` | ~45 |
-| `inferColumnBoundaries`, `assignColumn` | `extract/columns.ts` | ~60 |
-| `identifyTitles`, `assignOutsideText` | `extract/text.ts` | ~50 |
-| `buildPageLayout`, `detectHeaders` | `extract/headers.ts` + inline in `tiers.ts` | ~70 |
+Prefer the richest available structured representation. Do not convert
+position-aware or structured cells to markdown and then reconstruct their
+meaning from strings unless the conversion is an intentional compatibility
+fallback.
 
-Each new file imports from `geometry.ts` and `types.ts`. Run tests after each move.
+## Comments and naming
 
-### Step 3: Split `layout-engine.ts` into extract modules
+- Use names that describe the domain operation, not an implementation accident.
+- Keep comments that explain why a threshold, ordering, fallback, or
+  compatibility branch exists.
+- Remove comments that merely repeat the next line of code.
+- Avoid section banners and speculative comments about future work.
+- Keep JSDoc on exported APIs when it explains behavior, options, units, or
+  compatibility guarantees.
 
-| Current section | New file | Lines (approx) |
-|---|---|---|
-| `tryStructuredCells`, `structuredCellsToRows` | Part of `extract/tiers.ts` | ~50 |
-| `tryRegionTable`, `markdownRowsToTableRows` | Part of `extract/tiers.ts` | ~40 |
-| Tier C inline code | Removed (calls `buildPageLayout`) | -60 |
-| `extractPageLayout` | `extract/tiers.ts` (orchestrator) | ~60 |
-| `extractPdfPagesLayout`, `inferPageDimensions` | `extract/index.ts` | ~80 |
+## Tests and verification
 
-### Step 4: Split `writer.ts` into write modules
+Every behavior change should have a focused test at the owning boundary.
+Extend integration coverage when a change crosses extraction and writing.
 
-| Current section | New file | Lines (approx) |
-|---|---|---|
-| `writePerRegionStreaming`, `writePerRegionBuffer` | `write/per-region.ts` | ~120 |
-| `writeStackedStreaming`, `writeStackedBuffer` | `write/stacked.ts` | ~100 |
-| `resolvePolicy`, `headerSignature` | `write/policy.ts` | ~40 |
-| `writeLegacyPages`, `pageRowsToLayout` | `write/legacy.ts` | ~60 |
-| `writePagesToWorkbook` | `write/index.ts` | ~40 |
+Include cases that exercise the general rule, not only the document that
+motivated the change. For layout work, vary region count, column alignment,
+header repetition, multi-line headers, text containing spaces, and ambiguous
+or missing structure.
 
-### Step 5: Move legacy modules
+Verify the produced XLSX when the change affects output. Check actual rows,
+headers, column counts, warnings, and preserved values rather than relying
+only on internal counters.
 
-Move `engine.ts` → `legacy/engine.ts` and `parser.ts` → `legacy/parser.ts`. Update import paths in `pipeline.ts` (now `convert.ts`) and `index.ts`.
+Run the repository checks before submitting a change:
 
-### Step 6: Rename `pipeline.ts` → `convert.ts`
-
-The name "pipeline" is vague. `convert.ts` matches the exported function names (`convertPdf`, `convertPages`).
-
-### Step 7: Strip comments
-
-In every file:
-- Remove comments that restate the next line of code.
-- Remove `// ---------------------------------------------------------------------------` banners.
-- Keep comments that explain *why* (e.g., "2.5× median prevents single-table columns from splitting").
-- Keep JSDoc on exported functions and interfaces.
-
-Target: code% rises from 64% to ≥85%.
-
-### Step 8: Move and restructure tests
-
-Reorganize `tests/` to mirror `src/`. Split `region-discovery.test.ts` (24 tests) into `extract/region.test.ts`, `extract/rows.test.ts`, `extract/columns.test.ts`, `extract/text.test.ts`. Split `writer.test.ts` (11 tests) into `write/per-region.test.ts`, `write/stacked.test.ts`, `write/policy.test.ts`. Move `index.test.ts` → `integration/api.test.ts`.
-
-## 4. Comment policy
-
-### Remove
-
-```ts
-// Sort items by x coordinate
-const sorted = [...items].sort((a, b) => a.x - b.x);
-
-// Filter to text items only (no images, links, form fields)
-const textItems = items.filter(it => it.itemType === 'Text');
-
-// ---------------------------------------------------------------------------
-// Region discovery via x-gap clustering
-// ---------------------------------------------------------------------------
+```bash
+npm run build
+npm test
 ```
 
-### Keep
+For performance changes, measure extraction, processing, and writing
+separately. Record the input shape and runtime environment instead of making
+general performance claims from one unqualified run.
 
-```ts
-// 2.5× median prevents intra-table column gaps from triggering region splits,
-// while still catching the inter-table gap in side-by-side layouts.
-const relativeMin = medianGap * 2.5;
+## Change and review hygiene
 
-/** @deprecated Use the layout engine path instead. */
-export function markdownToRows(markdown: string): string[][] {
-```
+- Keep functional changes separate from unrelated cleanup.
+- Preserve user changes already present in the worktree.
+- Keep public APIs and generated output stable unless the task requires a
+  deliberate change.
+- Do not commit PDFs, generated XLSX files, temporary archives, or private
+  investigation reports.
+- Keep reusable scripts parameterized and place them under `scripts/`.
+- Use small commits with messages that explain one logical change.
+- Describe what was verified and call out unresolved limitations.
 
-### Rule of thumb
+## Completion checklist
 
-If deleting the comment would make a reviewer ask "why?", keep it. If deleting it changes nothing about understanding, remove it.
-
-## 5. Estimated impact
-
-| Metric | Current | After refactor |
-|---|---:|---:|
-| Files in `src/` | 8 | 17 |
-| Max file length | 579 lines | ≤150 lines |
-| Avg file length | 264 lines | ~75 lines |
-| Total lines | 2,112 | ~1,500 (comment removal) |
-| Code % | 64% | ≥85% |
-| Duplicated code | 2 instances | 0 |
-
-No functional behavior changes. All 39 tests pass before and after.
+- The owning implementation and nearby tests were inspected.
+- The change is general rather than document-specific.
+- Ambiguous or dropped data has an explicit policy.
+- Focused tests cover the changed behavior.
+- `npm run build` and `npm test` pass.
+- Documentation and public API comments match the implementation.
+- Generated and local-only artifacts remain excluded.
