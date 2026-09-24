@@ -11,6 +11,88 @@ import {
 import { identifyTitles, assignOutsideText } from './text.js';
 import { itemBBox, mergeBBoxes } from './geometry.js';
 
+function buildTableRows(items: TextItem[], pageHeight: number): TableRow[] {
+	const baselineRows = clusterRows(items, pageHeight);
+
+	// Try header-anchored column ranges first; fall back to legacy clustering.
+	const columnRanges = inferColumnRanges(baselineRows);
+	const legacyBoundaries = columnRanges ? null : inferColumnBoundaries(baselineRows);
+
+	const tableRows: TableRow[] = [];
+
+	for (let rowIdx = 0; rowIdx < baselineRows.length; rowIdx++) {
+		const bRow = baselineRows[rowIdx]!;
+		const cellMap = new Map<number, { texts: string[]; bboxes: BBox[] }>();
+
+		for (const item of bRow.items) {
+			const col = columnRanges
+				? assignColumnByRange(item.x, item.width, columnRanges)
+				: assignColumn(item.x, legacyBoundaries!);
+			let entry = cellMap.get(col);
+			if (!entry) {
+				entry = { texts: [], bboxes: [] };
+				cellMap.set(col, entry);
+			}
+			entry.texts.push(item.text);
+			entry.bboxes.push(itemBBox(item, pageHeight));
+		}
+
+		const cells: TableCell[] = [];
+		for (const [col, entry] of cellMap) {
+			const mergedBBox = mergeBBoxes(entry.bboxes);
+			cells.push({
+				text: entry.texts.join(' ').trim(),
+				bbox: mergedBBox,
+				column: col,
+				rowspan: 1,
+				colspan: 1,
+				isHeader: false,
+				confidence: columnRanges ? 0.9 : 0.7,
+				ambiguous: false,
+			});
+		}
+
+		cells.sort((a, b) => a.column - b.column);
+
+		tableRows.push({
+			index: rowIdx,
+			isHeader: false,
+			cells,
+		});
+	}
+
+	detectHeaders(tableRows);
+	return tableRows;
+}
+
+/**
+ * Build one table region from items that already form a single region.
+ *
+ * This deliberately does **not** re-run region discovery. The caller has
+ * already established the item grouping via `discoverRegions`, and
+ * re-partitioning an established region can split a table's own columns
+ * (e.g. a wide last-column gutter) into separate regions — the source of the
+ * dropped/split column defect. Returns null only when there is nothing to
+ * build, so an empty result is always visible to the caller.
+ */
+export function buildRegion(
+	items: TextItem[],
+	regionIdx: number,
+	pageNum: number,
+	pageHeight: number,
+	bbox: BBox,
+): TableRegion | null {
+	const textItems = items.filter(
+		(it) => it.itemType === 'Text' && it.text.trim().length > 0,
+	);
+	if (textItems.length === 0) return null;
+
+	const rows = buildTableRows(textItems, pageHeight);
+	if (rows.length === 0) return null;
+
+	return { id: regionIdx, page: pageNum, bbox, source: 'clustered', rows };
+}
+
 export function buildPageLayout(
 	items: TextItem[],
 	pageNum: number,
@@ -51,64 +133,14 @@ export function buildPageLayout(
 
 	for (let regionIdx = 0; regionIdx < clusters.length; regionIdx++) {
 		const cluster = clusters[regionIdx]!;
-		const baselineRows = clusterRows(cluster.items, pageHeight);
-
-		// Try header-anchored column ranges first; fall back to legacy clustering.
-		const columnRanges = inferColumnRanges(baselineRows);
-		const legacyBoundaries = columnRanges ? null : inferColumnBoundaries(baselineRows);
-
-		const tableRows: TableRow[] = [];
-
-		for (let rowIdx = 0; rowIdx < baselineRows.length; rowIdx++) {
-			const bRow = baselineRows[rowIdx]!;
-			const cellMap = new Map<number, { texts: string[]; bboxes: BBox[] }>();
-
-			for (const item of bRow.items) {
-				const col = columnRanges
-					? assignColumnByRange(item.x, item.width, columnRanges)
-					: assignColumn(item.x, legacyBoundaries!);
-				let entry = cellMap.get(col);
-				if (!entry) {
-					entry = { texts: [], bboxes: [] };
-					cellMap.set(col, entry);
-				}
-				entry.texts.push(item.text);
-				entry.bboxes.push(itemBBox(item, pageHeight));
-			}
-
-			const cells: TableCell[] = [];
-			for (const [col, entry] of cellMap) {
-				const mergedBBox = mergeBBoxes(entry.bboxes);
-				cells.push({
-					text: entry.texts.join(' ').trim(),
-					bbox: mergedBBox,
-					column: col,
-					rowspan: 1,
-					colspan: 1,
-					isHeader: false,
-					confidence: columnRanges ? 0.9 : 0.7,
-					ambiguous: false,
-				});
-			}
-
-			cells.sort((a, b) => a.column - b.column);
-
-			tableRows.push({
-				index: rowIdx,
-				isHeader: false,
-				cells,
-			});
-		}
-
-		detectHeaders(tableRows);
-
-		regions.push({
-			id: regionIdx,
-			page: pageNum,
-			bbox: [cluster.xMin, cluster.yMin, cluster.xMax, cluster.yMax],
-			source: 'clustered',
-			rows: tableRows,
-		});
+		const region = buildRegion(
+			cluster.items,
+			regionIdx,
+			pageNum,
+			pageHeight,
+			[cluster.xMin, cluster.yMin, cluster.xMax, cluster.yMax],
+		);
+		if (region) regions.push(region);
 	}
 
 	const topRegionY = Math.min(...clusters.map((c) => c.yMin));

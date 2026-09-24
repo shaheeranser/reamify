@@ -8,7 +8,7 @@ import {
 } from '@firecrawl/pdf-inspector';
 
 import { discoverRegions } from './region.js';
-import { buildPageLayout } from './headers.js';
+import { buildPageLayout, buildRegion } from './headers.js';
 import { identifyTitles, assignOutsideText } from './text.js';
 import { markdownToRows } from '../legacy/parser.js';
 import { clusterRows } from './rows.js';
@@ -253,16 +253,37 @@ export function extractPageLayout(
 		}
 
 		if (!region) {
-			const fallbackLayout = buildPageLayout(cluster.items, pageNum, pageWidth, pageHeight);
-			if (fallbackLayout.regions.length > 0) {
-				region = fallbackLayout.regions[0]!;
-				region.id = regionIdx;
+			// Tier C: the cluster was already established as a region by
+			// `discoverRegions`. Build exactly one region from it — re-running
+			// region discovery here re-partitioned the cluster and could split
+			// a table's own columns off, which previously led to the last
+			// column being dropped without any warning.
+			const fallbackRegion = buildRegion(
+				cluster.items,
+				regionIdx,
+				pageNum,
+				pageHeight,
+				regionBBox,
+			);
+			if (fallbackRegion) {
+				regions.push(fallbackRegion);
+			} else {
+				onWarning?.({
+					kind: 'tier-fallback',
+					page: pageNum,
+					message: `Tier C produced no region for cluster ${regionIdx}; its content was not emitted`,
+					regionId: regionIdx,
+				});
 			}
+			continue;
 		}
 
-		if (region) {
-			regions.push(region);
-		}
+		regions.push(region);
+	}
+
+	// Reassign stable ids.
+	for (let i = 0; i < regions.length; i++) {
+		regions[i]!.id = i;
 	}
 
 	const topRegionY = Math.min(...clusters.map((c) => c.yMin));

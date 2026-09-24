@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { TextItem } from '@firecrawl/pdf-inspector';
-import { buildPageLayout } from '../../src/extract/headers.js';
+import { buildPageLayout, buildRegion } from '../../src/extract/headers.js';
 
 function makeItem(overrides: Partial<TextItem> & { x: number; y: number; text: string }): TextItem {
 	return {
@@ -63,5 +63,36 @@ describe('buildPageLayout', () => {
 		const items = [makeItem({ x: 50, y: 700, text: 'test' })];
 		const layout = buildPageLayout(items, 42, PAGE_WIDTH, PAGE_HEIGHT);
 		expect(layout.page).toBe(42);
+	});
+});
+
+describe('buildRegion', () => {
+	it('keeps a table as one region even when its last gutter is the largest gap', () => {
+		// One 5-column table. Gutters in x-order: 14.0, 14.45, 10.92, 23.93.
+		// The 23.93pt last gutter is a strong relative discontinuity *within*
+		// this table but is not a region boundary; re-running region discovery
+		// here used to split it off and drop it.
+		const gaps = [14.0, 14.45, 10.92, 23.93];
+		const xs = [0];
+		for (let i = 0; i < gaps.length; i++) xs.push(+(xs[i]! + 12 + gaps[i]!).toFixed(2));
+
+		const headerText = ['Contract No', 'IBC Name', 'Payment Slab', 'Outstanding Dues', 'Disconnections'];
+		const items = [
+			...xs.map((x, i) => makeItem({ x, y: 700, text: headerText[i]!, width: 10 })),
+			...xs.map((x, i) => makeItem({ x, y: 680, text: `${1000 + i}`, width: 10 })),
+			...xs.map((x, i) => makeItem({ x, y: 660, text: `${2000 + i}`, width: 10 })),
+		];
+
+		const region = buildRegion(items, 0, 0, PAGE_HEIGHT, [0, 0, 100, 100]);
+		expect(region).not.toBeNull();
+
+		let maxCol = 0;
+		for (const row of region!.rows) for (const c of row.cells) maxCol = Math.max(maxCol, c.column + 1);
+		expect(maxCol).toBe(5);
+		expect(region!.rows).toHaveLength(3);
+	});
+
+	it('returns null for items with no text', () => {
+		expect(buildRegion([], 0, 0, PAGE_HEIGHT, [0, 0, 0, 0])).toBeNull();
 	});
 });
