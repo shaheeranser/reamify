@@ -4,6 +4,7 @@ import {
 	type TextItem,
 } from '@firecrawl/pdf-inspector';
 import { extractPageLayout } from './tiers.js';
+import { createColumnCountModel } from './column-model.js';
 import { mergeTableRegions, mergeTableRegionsWithReport, getLastMergeReport, headerBlockSignature } from './merge.js';
 import type { PageLayout, OnWarning, ExtractionMode } from '../types.js';
 
@@ -25,6 +26,10 @@ export async function* extractPdfPagesLayout(
 	const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
 	const mode = options.extraction ?? 'auto';
 	const onWarning = options.onWarning;
+
+	// Document-scoped view of the table column count, shared across pages so
+	// the Tier B gate validates against the document rather than the region.
+	const columnModel = createColumnCountModel();
 
 	const classification = classifyPdf(pdf);
 	const totalPages = classification.pageCount;
@@ -73,6 +78,7 @@ export async function* extractPdfPagesLayout(
 				pageHeight,
 				mode,
 				onWarning,
+				columnModel,
 			);
 
 			layout.needsOcr = needsOcr;

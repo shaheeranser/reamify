@@ -13,6 +13,7 @@ import { identifyTitles, assignOutsideText } from './text.js';
 import { markdownToRows } from '../legacy/parser.js';
 import { clusterRows } from './rows.js';
 import { inferColumnRanges } from './columns.js';
+import type { ColumnCountModel } from './column-model.js';
 
 import type {
 	BBox,
@@ -169,6 +170,7 @@ export function extractPageLayout(
 	pageHeight: number,
 	mode: ExtractionMode = 'auto',
 	onWarning?: OnWarning,
+	columnModel?: ColumnCountModel,
 ): PageLayout {
 	if (mode === 'positions') {
 		return buildPageLayout(items, pageNum, pageWidth, pageHeight);
@@ -200,6 +202,15 @@ export function extractPageLayout(
 		const cluster = clusters[regionIdx]!;
 		const regionBBox: BBox = [cluster.xMin, cluster.yMin, cluster.xMax, cluster.yMax];
 
+		// How wide this table is expected to be, from its own header structure
+		// and from the document-wide model. Never from the markdown being
+		// validated: a region that was split off its table would otherwise
+		// under-report its own column count and pass its own check.
+		const baselineRows = clusterRows(cluster.items, pageHeight);
+		const regionCols = inferColumnRanges(baselineRows)?.length ?? 0;
+		columnModel?.observe(regionCols);
+		const expectedCols = Math.max(regionCols, columnModel?.expected() ?? 0);
+
 		let region: TableRegion | null = null;
 
 		if (mode === 'auto') {
@@ -229,8 +240,6 @@ export function extractPageLayout(
 			try {
 				const mdRows = tryRegionTable(buffer, regionBBox, pageNum);
 				if (mdRows && mdRows.length > 0) {
-					const bRows = clusterRows(cluster.items, pageHeight);
-					const expectedCols = inferColumnRanges(bRows)?.length ?? 0;
 					if (expectedCols === 0 || mdRows[0]!.length >= expectedCols) {
 						const rows = markdownRowsToTableRows(mdRows, regionBBox);
 						region = {
