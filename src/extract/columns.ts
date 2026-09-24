@@ -55,18 +55,15 @@ export function inferColumnRanges(rows: BaselineRow[]): ColumnRange[] | null {
 
 	if (spans.length === 0) return null;
 
-	// Sort spans by left edge
 	spans.sort((a, b) => a.left - b.left);
 
-	// Cluster overlapping or very close spans into logical columns.
-	// Two spans belong to the same logical column if they overlap or
-	// their gap is smaller than MIN_COLUMN_GAP_PT.
+	// Two spans belong to the same logical column when they overlap or sit
+	// within the small gap tolerance used to absorb header alignment noise.
 	const merged: Array<{ left: number; right: number }> = [{ ...spans[0]! }];
 	for (let i = 1; i < spans.length; i++) {
 		const span = spans[i]!;
 		const last = merged[merged.length - 1]!;
 		if (span.left <= last.right + MIN_COLUMN_GAP_PT) {
-			// Merge: extend the right edge
 			last.left = Math.min(last.left, span.left);
 			last.right = Math.max(last.right, span.right);
 		} else {
@@ -76,7 +73,6 @@ export function inferColumnRanges(rows: BaselineRow[]): ColumnRange[] | null {
 
 	if (merged.length < 2) return null;
 
-	// Build column ranges using midpoints between adjacent merged spans.
 	const ranges: ColumnRange[] = [];
 	for (let i = 0; i < merged.length; i++) {
 		const leftBound = i === 0
@@ -107,7 +103,6 @@ export function assignColumnByRange(
 			return i;
 		}
 	}
-	// Fallback: assign to nearest range
 	let bestIdx = 0;
 	let bestDist = Infinity;
 	for (let i = 0; i < ranges.length; i++) {
@@ -124,10 +119,7 @@ export function assignColumnByRange(
 	return bestIdx;
 }
 
-// ---------------------------------------------------------------------------
-// Legacy clustering (retained as fallback)
-// ---------------------------------------------------------------------------
-
+/** Legacy clustering retained as a fallback for older extraction paths. */
 export function inferColumnBoundaries(rows: BaselineRow[]): number[] {
 	if (rows.length === 0) return [];
 

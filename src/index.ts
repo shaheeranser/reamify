@@ -4,8 +4,8 @@ export { convertPages, convertPdf };
 export { mergeTableRegions, mergeTableRegionsWithReport, getLastMergeReport, headerBlockSignature } from './extract/index.js';
 export { reconstructMultiLineHeaders, filterRepeatedHeaders, reconstructRegionHeaders } from './write/postprocess.js';
 
-// Legacy exports (deprecated but preserved for backward compatibility)
-/** @deprecated Use the layout engine path instead. */
+// Legacy exports retained for backward compatibility.
+/** @deprecated Prefer the structured extraction path or `convertPdf` / `convertPages`. */
 export { markdownToRows } from './legacy/parser.js';
 
 // New IR types
@@ -24,7 +24,7 @@ export type {
 	ExtractionMode,
 } from './types.js';
 
-// Pipeline and writer types
+/** Public conversion and writer types exposed at the package entry point. */
 export type { ConvertOptions, OnDiagnostics } from './convert.js';
 export type { WorkbookResult } from './convert.js';
 export type { ExtractedPage } from './legacy/engine.js';

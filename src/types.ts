@@ -7,16 +7,8 @@
  * are all derived from positioned text coordinates.
  */
 
-// ---------------------------------------------------------------------------
-// Geometry
-// ---------------------------------------------------------------------------
-
 /** Bounding box in PDF points, top-left origin: [x1, y1, x2, y2]. */
 export type BBox = [number, number, number, number];
-
-// ---------------------------------------------------------------------------
-// Cell / Row / Region / Page layout
-// ---------------------------------------------------------------------------
 
 export interface TableCell {
 	/** Cell text content (never split on whitespace by the library). */
@@ -82,9 +74,7 @@ export interface PageLayout {
 	ocrReason?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Warnings and diagnostics
-// ---------------------------------------------------------------------------
+/** Warnings emitted during extraction and conversion. */
 
 export type WarningKind =
 	| 'ambiguous-cell'
@@ -114,10 +104,6 @@ export interface ConversionDiagnostics {
 	/** Counts of regions produced by each extraction tier. */
 	tierCounts: Record<RegionSource, number>;
 }
-
-// ---------------------------------------------------------------------------
-// Options
-// ---------------------------------------------------------------------------
 
 /**
  * Worksheet layout policy:

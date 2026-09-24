@@ -1,42 +1,63 @@
-# REAMIFY
+# Reamify
 
-Memory-conscious PDF table extraction to XLSX using `@firecrawl/pdf-inspector` and `exceljs`.
+Reamify converts PDF table data to XLSX workbooks for Node.js applications. It uses `@firecrawl/pdf-inspector` for PDF extraction and `exceljs` for workbook generation.
 
-## Node.js PDF conversion
+## Installation
 
-`convertPdf` asks pdf-inspector for page-level markdown. Each page is converted to rows and handed to the workbook writer before the next page is processed. Table and multi-column layout heuristics come from pdf-inspector, so separate columns are not flattened by a plain text extraction pass.
+```bash
+npm install reamify
+```
+
+## Convert a PDF
+
+`convertPdf` accepts a PDF `Buffer` and returns an XLSX `Buffer`, `ArrayBuffer`, or no value when writing to a file or stream.
 
 ```ts
 import { readFile } from 'node:fs/promises';
 import { convertPdf } from 'reamify';
 
-const pdf = await readFile('input.pdf');
+const workbook = await convertPdf(await readFile('input.pdf'));
+```
 
-await convertPdf(pdf, {
-	filename: 'output.xlsx',
-	includePageColumn: true,
+For Node.js output, pass `filename` or a writable `stream` to use ExcelJS's streaming workbook writer:
+
+```ts
+await convertPdf(await readFile('input.pdf'), {
+  filename: 'output.xlsx',
+  includePageColumn: true,
 });
 ```
 
-Passing `filename` or a Node writable `stream` selects ExcelJS's streaming workbook writer. Rows are committed as they are produced. Without either option, `convertPdf` returns the normal ExcelJS workbook buffer.
+`includePageColumn` adds the one-based source page number to each output row. `pageNumbers` selects zero-based pages. `sheetName` sets the worksheet name. `worksheetPolicy` can be `auto`, `per-region`, or `stacked`; `extraction` can be `auto`, `positions`, or `markdown-legacy`.
 
-## Browser conversion
+## Convert pre-extracted pages
 
-`pdf-inspector` is a native Node N-API package and cannot run in a browser bundle. Browser applications should extract pages with their PDF/OCR service, then append each page's rows through `convertPages`:
+`convertPages` accepts a synchronous or asynchronous iterable of `string[][]` pages. This is the browser-compatible entry point when PDF extraction happens elsewhere.
 
 ```ts
 import { convertPages } from 'reamify';
 
-const xlsx = await convertPages(pageRowStream, {
-	sheetName: 'Tables',
+const workbook = await convertPages(pageRowStream, {
+  sheetName: 'Tables',
 });
 ```
 
-`pageRowStream` can be any sync or async iterable of `string[][]`. The workbook is assembled page-by-page; ExcelJS returns an `ArrayBuffer` in browsers (and a `Buffer` under Node). Browser XLSX generation ultimately needs a final buffer for download because ExcelJS's browser bundle does not expose a writable streaming target.
+Without `filename` or `stream`, ExcelJS builds the workbook in memory and returns the final buffer. The native `@firecrawl/pdf-inspector` dependency is used by `convertPdf` and is not browser-runnable.
 
-## Options
+## Public API
 
-- `pageNumbers`: zero-based pages to extract with `convertPdf`.
-- `includePageColumn`: prefix each output row with its source page number.
-- `sheetName`: name the worksheet.
-- `filename` or `stream`: enable Node's low-memory streaming writer.
+The package exports `convertPdf`, `convertPages`, and `convert` (an alias for `convertPdf`), along with the extraction, post-processing, diagnostics, and workbook option types exposed from `src/index.ts`. `markdownToRows` remains available as a deprecated compatibility export.
+
+## Development
+
+```bash
+npm install
+npm run build
+npm test
+```
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution guidance.
+
+## License
+
+MIT. See [LICENSE](./LICENSE).

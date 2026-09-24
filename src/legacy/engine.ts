@@ -1,7 +1,7 @@
 /**
  * Legacy PDF extraction engine.
  *
- * @deprecated Use the layout engine (`layout-engine.ts`) for new code.
+ * @deprecated Use the layout extraction path in `src/extract/index.ts` for new code.
  * This module is retained only for backward compatibility and as a fallback
  * when `extraction: 'markdown-legacy'` is specified.
  *
@@ -30,7 +30,7 @@ export interface InspectorOptions {
 }
 
 /**
- * @deprecated Use `extractPdfPagesLayout` from `layout-engine.ts` instead.
+ * @deprecated Use `extractPdfPagesLayout` from `src/extract/index.ts` instead.
  */
 export async function* extractPdfPages(
 	pdf: Buffer,

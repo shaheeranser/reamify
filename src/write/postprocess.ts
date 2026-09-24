@@ -1,27 +1,16 @@
 /**
  * Post-extraction, pre-export processing pipeline.
  *
- * Runs steps in order:
- * 1. **Header reconstruction** — join multi-line header fragments into one
- *    label per column.
- * 2. **Header-row filter** — drop any row whose cells match the
- *    reconstructed header signature.
+ * The steps are intentionally ordered: header reconstruction first, then
+ * repeated-header filtering, and finally serial renumbering for output.
  */
 
 import type { PageLayout, TableRegion, TableRow, TableCell, BBox } from '../types.js';
-
-// ---------------------------------------------------------------------------
-// Normalization
-// ---------------------------------------------------------------------------
 
 /** Normalize a string for comparison: trim, lowercase, collapse whitespace. */
 export function normalize(s: string): string {
 	return s.trim().toLowerCase().replace(/\s+/g, ' ');
 }
-
-// ---------------------------------------------------------------------------
-// Step 1: Header reconstruction
-// ---------------------------------------------------------------------------
 
 /**
  * For a single region, join multi-line header rows into a single canonical
@@ -117,9 +106,6 @@ export function reconstructMultiLineHeaders(layouts: PageLayout[]): string[] | n
 	return canonicalLabels;
 }
 
-// ---------------------------------------------------------------------------
-// Step 2: Header-row filter
-// ---------------------------------------------------------------------------
 
 /**
  * Build a normalized signature from a set of labels for matching.
@@ -229,9 +215,6 @@ export function filterRepeatedHeaders(
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Step 3: Serial renumbering (optional utility)
-// ---------------------------------------------------------------------------
 
 /**
  * Walk all surviving data rows in document order and assign sequential
@@ -254,26 +237,19 @@ export function renumberSerials(layouts: PageLayout[]): number {
 	return counter;
 }
 
-// ---------------------------------------------------------------------------
-// Combined pipeline
-// ---------------------------------------------------------------------------
-
 /**
- * Run postprocessing steps in order.
+ * Run the postprocessing pipeline in the fixed order required for stable output.
  *
  * @param layouts - PageLayout array (mutated in place).
  * @returns The canonical header labels, or null if none were found.
  */
 export function postprocessLayouts(layouts: PageLayout[]): string[] | null {
-	// Step 1: Reconstruct multi-line headers into single rows.
 	const canonicalLabels = reconstructMultiLineHeaders(layouts);
 
-	// Step 2: Filter repeated header rows from the data stream.
 	if (canonicalLabels) {
 		filterRepeatedHeaders(layouts, canonicalLabels);
 	}
 
-	// Step 3: Renumber serials on surviving data rows.
 	renumberSerials(layouts);
 
 	return canonicalLabels;

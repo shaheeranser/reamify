@@ -60,11 +60,9 @@ export function discoverRegions(
 
 	const gapSizes = allGaps.map((g) => g.size).sort((a, b) => a - b);
 
-	// Region boundaries sit at the widest *relative* jump between adjacent
-	// sorted gap sizes: intra-table gutters form a cluster, and a boundary is
-	// a break to a distinctly larger gap. Only gaps that clear the absolute
-	// floor can define the break, so ordinary gutters — however wide a token
-	// in their column is — can never promote themselves to a boundary.
+	// A region split is allowed only when a gap jumps materially beyond the
+	// document's ordinary in-table gutters, while still clearing the absolute
+	// minimum floor for a real boundary.
 	let bestRatio = 1;
 	let threshold = Infinity;
 	for (let i = 0; i < gapSizes.length - 1; i++) {
