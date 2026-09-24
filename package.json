@@ -1,5 +1,5 @@
 {
-  "name": "reamify",
+  "name": "@shaheeranser/reamify",
   "version": "0.1.0",
   "description": "Memory-efficient PDF-to-XLSX table extraction for Node.js",
   "keywords": [
