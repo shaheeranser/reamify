@@ -1,6 +1,6 @@
 # Agent Instructions
 
-Read [docs/refactor-guide.md](docs/refactor-guide.md) for the detailed
+Read [docs/coding-practices.md](docs/coding-practices.md) for the detailed
 structural and style reference. This file contains only repo-specific operating
 rules for AI coding agents.
 
@@ -34,4 +34,3 @@ rules for AI coding agents.
 - Keep PDFs, generated XLSX files, temporary archives, and one-off reports in
   ignored `eval/`; reusable documentation belongs in `docs/` and reusable
   scripts belong in `scripts/`.
-  

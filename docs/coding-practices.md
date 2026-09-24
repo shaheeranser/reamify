@@ -1,4 +1,4 @@
-# Coding Guide
+# Coding Practices
 
 This guide describes the engineering practices for Reamify and for agents
 making changes in the repository. It is intentionally independent of any one
