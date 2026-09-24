@@ -228,6 +228,77 @@ describe('filterRepeatedHeaders', () => {
 		expect(layouts[2]!.regions[0]!.rows).toHaveLength(1);
 		expect(layouts[2]!.regions[0]!.rows[0]!.cells[0]!.text).toBe('D5');
 	});
+
+	it('drops truncated and split copies of the already-emitted canonical header', () => {
+		const canonical = [
+			'Contract No',
+			'IBC Name',
+			'Payment Slab',
+			'Outstanding Dues (April-26)',
+			'Disconnections Attempts',
+		];
+		const fullHeader = canonical.map((t, i) => makeCell(t, i, true));
+		const layouts: PageLayout[] = [
+			makeLayout(0, [
+				makeRegion(0, 0, [
+					makeRow(fullHeader, 0, true),
+					makeRow([makeCell('1001', 0), makeCell('Uthal', 1)], 1),
+				]),
+			]),
+			makeLayout(1, [
+				makeRegion(0, 1, [
+					makeRow(
+						[
+							makeCell('Contract No', 0, true),
+							makeCell('IBC Name', 1, true),
+							makeCell('Payment Slab', 2, true),
+							makeCell('Outstanding Dues (April-26)', 3, true),
+						],
+						0,
+						true,
+					),
+					makeRow([makeCell('1002', 0), makeCell('KIMZ', 1)], 1),
+				]),
+			]),
+			makeLayout(2, [
+				makeRegion(0, 2, [
+					makeRow([makeCell('Disconnections Attempts', 0, true)], 0, true),
+					makeRow([makeCell('2', 0)], 1),
+				]),
+			]),
+		];
+
+		filterRepeatedHeaders(layouts, canonical);
+
+		expect(layouts[0]!.regions[0]!.rows[0]!.isHeader).toBe(true);
+		expect(layouts[1]!.regions[0]!.rows).toHaveLength(1);
+		expect(layouts[1]!.regions[0]!.rows[0]!.cells[0]!.text).toBe('1002');
+		expect(layouts[2]!.regions[0]!.rows).toHaveLength(1);
+		expect(layouts[2]!.regions[0]!.rows[0]!.cells[0]!.text).toBe('2');
+	});
+
+	it('keeps the first header of a genuinely distinct schema', () => {
+		const layouts: PageLayout[] = [
+			makeLayout(0, [
+				makeRegion(0, 0, [
+					makeRow([makeCell('Contract No', 0, true), makeCell('IBC Name', 1, true)], 0, true),
+					makeRow([makeCell('1001', 0), makeCell('Uthal', 1)], 1),
+				]),
+			]),
+			makeLayout(1, [
+				makeRegion(0, 1, [
+					makeRow([makeCell('Date', 0, true), makeCell('Amount', 1, true)], 0, true),
+					makeRow([makeCell('2020-01-01', 0), makeCell('50', 1)], 1),
+				]),
+			]),
+		];
+
+		filterRepeatedHeaders(layouts, ['Contract No', 'IBC Name']);
+
+		expect(layouts[0]!.regions[0]!.rows[0]!.cells[0]!.text).toBe('Contract No');
+		expect(layouts[1]!.regions[0]!.rows[0]!.isHeader).toBe(true);
+		expect(layouts[1]!.regions[0]!.rows[0]!.cells[0]!.text).toBe('Date');
+	});
 });
 
 describe('renumberSerials', () => {

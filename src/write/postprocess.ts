@@ -141,10 +141,40 @@ export function rowSignature(row: TableRow): string {
 	return buildSignature(values);
 }
 
+/** Normalized non-empty cell texts from a row, ignoring column gaps. */
+export function rowLabelSet(row: TableRow): Set<string> {
+	const labels = new Set<string>();
+	for (const cell of row.cells) {
+		const n = normalize(cell.text);
+		if (n) labels.add(n);
+	}
+	return labels;
+}
+
 /**
- * Remove any data row whose full cell content matches the canonical
- * header signature. This catches headers that were repeated mid-stream
- * or carried along from merged side-by-side blocks.
+ * True when every label in `parts` already appears in an emitted schema
+ * (or in the document canonical header, once that header has been kept).
+ * Truncated / split repeats such as a 4-column copy of a 5-column header
+ * are treated as the same logical schema, not a new table.
+ */
+function coveredByEmittedSchema(parts: Set<string>, emitted: Set<string>[]): boolean {
+	if (parts.size === 0 || emitted.length === 0) return false;
+	return emitted.some((schema) => {
+		for (const p of parts) {
+			if (!schema.has(p)) return false;
+		}
+		return true;
+	});
+}
+
+/**
+ * Remove header rows after the first occurrence of each distinct schema.
+ *
+ * Scope is the whole output, not each page-region: a later region's
+ * `isHeader` row is dropped even if it is that region's local index 0.
+ * A truncated or fragmented copy of an already-emitted schema (subset of
+ * its labels) is also dropped, so split last-column headers cannot sneak
+ * through as a "new" table.
  */
 export function filterRepeatedHeaders(
 	layouts: PageLayout[],
@@ -153,14 +183,16 @@ export function filterRepeatedHeaders(
 	const headerSig = buildSignature(canonicalLabels);
 	if (!headerSig) return;
 
-	// Track which header signatures have already been emitted at document
-	// scope.  Each distinct header schema (canonical or region-local) is
-	// allowed exactly one occurrence; every subsequent match is dropped.
-	const emittedHeaderSigs = new Set<string>();
+	const canonicalParts = new Set(
+		canonicalLabels.map(normalize).filter((s) => s.length > 0),
+	);
+	// Document-wide: first kept header of each distinct schema. Canonical
+	// labels are seeded so subset matches work even before the first row
+	// is classified, once at least one header has been emitted.
+	const emittedSchemas: Set<string>[] = [];
 
 	for (const layout of layouts) {
 		for (const region of layout.regions) {
-			// Collect the header signature(s) from this region's own header rows.
 			const localHeaderSigs = new Set<string>();
 			for (const row of region.rows) {
 				if (row.isHeader) {
@@ -170,21 +202,26 @@ export function filterRepeatedHeaders(
 
 			region.rows = region.rows.filter((row) => {
 				const sig = rowSignature(row);
-				const matches = sig === headerSig || localHeaderSigs.has(sig);
-				if (matches) {
-					// Keep the very first occurrence of each distinct header
-					// schema across the entire document; drop all repeats.
-					if (row.isHeader && !emittedHeaderSigs.has(sig)) {
-						emittedHeaderSigs.add(sig);
-						return true;
-					}
-					// Drop repeated header row (from merged second block or repeated in data)
-					return false;
+				const parts = rowLabelSet(row);
+				const subsetOfCanonical = parts.size > 0
+					&& [...parts].every((p) => canonicalParts.has(p));
+				const isRepeatOfEmitted = coveredByEmittedSchema(parts, emittedSchemas)
+					|| (emittedSchemas.length > 0 && subsetOfCanonical);
+				const looksLikeHeader = sig === headerSig
+					|| localHeaderSigs.has(sig)
+					|| isRepeatOfEmitted;
+
+				if (!looksLikeHeader) return true;
+
+				// Keep only the first header of a schema that is not a subset
+				// of one already written (document scope, not per-region idx).
+				if (row.isHeader && !isRepeatOfEmitted) {
+					emittedSchemas.push(parts.size > 0 ? parts : new Set(sig.split('|')));
+					return true;
 				}
-				return true;
+				return false;
 			});
 
-			// Reindex remaining rows.
 			for (let i = 0; i < region.rows.length; i++) {
 				region.rows[i]!.index = i;
 			}
