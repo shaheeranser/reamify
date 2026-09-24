@@ -1,5 +1,5 @@
 {
-  "name": "memoream",
+  "name": "reamify",
   "version": "0.1.0",
   "description": "Memory-efficient PDF-to-XLSX table extraction for Node.js",
   "keywords": [
@@ -10,25 +10,37 @@
     "streaming",
     "nodejs"
   ],
-  "main": "src/index.js",
-  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "scripts": {
-    "test": "vitest run"
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shaheeranser/memoream.git"
+    "url": "git+https://github.com/shaheeranser/reamify.git"
   },
   "author": "Muhammad Shaheer",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/shaheeranser/memoream/issues"
+    "url": "https://github.com/shaheeranser/reamify/issues"
   },
-  "homepage": "https://github.com/shaheeranser/memoream#readme",
+  "homepage": "https://github.com/shaheeranser/reamify#readme",
   "devDependencies": {
     "@types/node": "^26.4.1",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
+  },
+  "dependencies": {
+    "@firecrawl/pdf-inspector": "^1.17.0",
+    "exceljs": "^4.4.0"
+  },
+  "directories": {
+    "test": "tests"
   }
 }
