@@ -97,4 +97,33 @@ describe('discoverRegions', () => {
 		const regions = discoverRegions(items, PAGE_WIDTH, PAGE_HEIGHT);
 		expect(regions).toHaveLength(1);
 	});
+
+	it('does not sever a column when intra-table gutters are uneven (regression)', () => {
+		// Two 5-column tables. Gutters in x-order: the left table's four
+		// gutters, the inter-table gap, then the right table's four gutters.
+		// The widest intra-table gutter (23.93) sits just above the absolute
+		// floor (551.7 * 0.04 = 22.07), which is enough to fool a
+		// median-derived threshold into treating it as a region boundary and
+		// splitting the last column off its own table.
+		const gapSequence = [14.0, 14.45, 10.92, 23.93, 37.95, 13.76, 21.96, 10.92, 22.14];
+		const xs = [0];
+		for (let i = 0; i < gapSequence.length; i++) {
+			xs.push(+(xs[i]! + 2 + gapSequence[i]!).toFixed(2));
+		}
+		const items = xs.map((x, i) => makeItem({ x, y: 700, text: `T${i}`, width: 2 }));
+
+		const regions = discoverRegions(items, 551.7, PAGE_HEIGHT);
+		expect(regions).toHaveLength(2);
+		expect(regions[0]!.items).toHaveLength(5);
+		expect(regions[1]!.items).toHaveLength(5);
+	});
+
+	it('keeps a uniform-gutter table as a single region (no discontinuity to split on)', () => {
+		const items = Array.from({ length: 10 }, (_, i) =>
+			makeItem({ x: i * 12, y: 700, text: `U${i}`, width: 2 }),
+		);
+
+		const regions = discoverRegions(items, 551.7, PAGE_HEIGHT);
+		expect(regions).toHaveLength(1);
+	});
 });
