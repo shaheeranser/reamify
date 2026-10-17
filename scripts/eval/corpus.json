@@ -1,0 +1,104 @@
+{
+	"comment": "Curated public, text-based PDFs of varied size and shape for the reamify vs pdf-to-excel comparison. 'heavy' documents are skipped unless --heavy is passed. 'localPath' entries are not downloaded.",
+	"documents": [
+		{
+			"id": "w3c-dummy",
+			"url": "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+			"tags": ["baseline"],
+			"sizeClass": "tiny",
+			"heavy": false
+		},
+		{
+			"id": "tabula-eu-002",
+			"url": "https://raw.githubusercontent.com/tabulapdf/tabula-java/master/src/test/resources/technology/tabula/eu-002.pdf",
+			"tags": ["table", "financial"],
+			"sizeClass": "small",
+			"heavy": false
+		},
+		{
+			"id": "tabula-multicolumn",
+			"url": "https://raw.githubusercontent.com/tabulapdf/tabula-java/master/src/test/resources/technology/tabula/MultiColumn.pdf",
+			"tags": ["multicolumn"],
+			"sizeClass": "small",
+			"heavy": false
+		},
+		{
+			"id": "tabula-argentina-votes",
+			"url": "https://raw.githubusercontent.com/tabulapdf/tabula-java/master/src/test/resources/technology/tabula/argentina_diputados_voting_record.pdf",
+			"tags": ["table"],
+			"sizeClass": "medium",
+			"heavy": false
+		},
+		{
+			"id": "tabula-campaign-donors",
+			"url": "https://raw.githubusercontent.com/tabulapdf/tabula-java/master/src/test/resources/technology/tabula/campaign_donors.pdf",
+			"tags": ["table"],
+			"sizeClass": "medium",
+			"heavy": false
+		},
+		{
+			"id": "tabula-offense",
+			"url": "https://raw.githubusercontent.com/tabulapdf/tabula-java/master/src/test/resources/technology/tabula/offense.pdf",
+			"tags": ["table"],
+			"sizeClass": "medium",
+			"heavy": false
+		},
+		{
+			"id": "arxiv-attention",
+			"url": "https://arxiv.org/pdf/1706.03762",
+			"tags": ["paper", "tables"],
+			"sizeClass": "medium",
+			"heavy": false
+		},
+		{
+			"id": "arxiv-resnet",
+			"url": "https://arxiv.org/pdf/1512.03385",
+			"tags": ["paper", "tables"],
+			"sizeClass": "medium",
+			"heavy": false
+		},
+		{
+			"id": "irs-fw9",
+			"url": "https://www.irs.gov/pub/irs-pdf/fw9.pdf",
+			"tags": ["form"],
+			"sizeClass": "small",
+			"heavy": false
+		},
+		{
+			"id": "irs-f1040",
+			"url": "https://www.irs.gov/pub/irs-pdf/f1040.pdf",
+			"tags": ["form"],
+			"sizeClass": "small",
+			"heavy": false
+		},
+		{
+			"id": "arxiv-gpt4",
+			"url": "https://arxiv.org/pdf/2303.08774",
+			"tags": ["paper", "tables"],
+			"sizeClass": "large",
+			"heavy": true
+		},
+		{
+			"id": "irs-p15",
+			"url": "https://www.irs.gov/pub/irs-pdf/p15.pdf",
+			"tags": ["report", "tables"],
+			"sizeClass": "large",
+			"heavy": true
+		},
+		{
+			"id": "irs-i1040gi",
+			"url": "https://www.irs.gov/pub/irs-pdf/i1040gi.pdf",
+			"tags": ["report", "tables"],
+			"sizeClass": "large",
+			"heavy": true
+		},
+		{
+			"id": "local-defaulters",
+			"url": null,
+			"localPath": "eval/Defaulters-List (1).pdf",
+			"tags": ["table", "huge", "local"],
+			"sizeClass": "huge",
+			"heavy": true
+		}
+	]
+}
