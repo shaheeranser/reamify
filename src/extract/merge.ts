@@ -126,35 +126,54 @@ function haveDistinguishingCaptions(layout: PageLayout, regA: TableRegion, regB:
 	return false;
 }
 
-function isSideBySidePatternConsistent(layouts: PageLayout[]): boolean {
-	let multiRegionPages = 0;
-	let sideBySidePages = 0;
+export interface SideBySideStats {
+	multiRegionPages: number;
+	sideBySidePages: number;
+}
 
-	for (const layout of layouts) {
-		if (layout.regions.length <= 1) continue;
-		multiRegionPages++;
+/**
+ * Whether a single page contains at least one horizontally-overlapping
+ * region pair whose header signatures (or column counts) match. Only
+ * meaningful for pages with more than one region.
+ */
+export function layoutHasSideBySideMatch(layout: PageLayout): boolean {
+	const sorted = [...layout.regions].sort((a, b) => a.bbox[0] - b.bbox[0]);
 
-		const sorted = [...layout.regions].sort((a, b) => a.bbox[0] - b.bbox[0]);
-		let hasMatch = false;
-		for (let i = 0; i < sorted.length - 1; i++) {
-			const a = sorted[i]!;
-			const b = sorted[i + 1]!;
-			const yTop = Math.max(a.bbox[1], b.bbox[1]);
-			const yBottom = Math.min(a.bbox[3], b.bbox[3]);
-			if (yBottom > yTop) {
-				const sigA = headerBlockSignature(a.rows);
-				const sigB = headerBlockSignature(b.rows);
-				if ((sigA && sigA === sigB) || (sigA && !sigB && colCount(a) === colCount(b))) {
-					hasMatch = true;
-					break;
-				}
+	for (let i = 0; i < sorted.length - 1; i++) {
+		const a = sorted[i]!;
+		const b = sorted[i + 1]!;
+		const yTop = Math.max(a.bbox[1], b.bbox[1]);
+		const yBottom = Math.min(a.bbox[3], b.bbox[3]);
+		if (yBottom > yTop) {
+			const sigA = headerBlockSignature(a.rows);
+			const sigB = headerBlockSignature(b.rows);
+			if ((sigA && sigA === sigB) || (sigA && !sigB && colCount(a) === colCount(b))) {
+				return true;
 			}
 		}
-		if (hasMatch) sideBySidePages++;
 	}
+	return false;
+}
 
-	if (multiRegionPages === 0) return true;
-	return sideBySidePages / multiRegionPages >= 0.5;
+/**
+ * Incrementally accumulate the document-level side-by-side pattern counters.
+ * Order-independent, so a streaming summary pass can feed pages one at a time.
+ */
+export function accumulateSideBySideStats(layout: PageLayout, stats: SideBySideStats): void {
+	if (layout.regions.length <= 1) return;
+	stats.multiRegionPages++;
+	if (layoutHasSideBySideMatch(layout)) stats.sideBySidePages++;
+}
+
+export function sideBySidePatternFromStats(stats: SideBySideStats): boolean {
+	if (stats.multiRegionPages === 0) return true;
+	return stats.sideBySidePages / stats.multiRegionPages >= 0.5;
+}
+
+function isSideBySidePatternConsistent(layouts: PageLayout[]): boolean {
+	const stats: SideBySideStats = { multiRegionPages: 0, sideBySidePages: 0 };
+	for (const layout of layouts) accumulateSideBySideStats(layout, stats);
+	return sideBySidePatternFromStats(stats);
 }
 
 export type MergeTier = 'sequence-confirmed' | 'heuristic' | 'flagged-ambiguous';
@@ -278,16 +297,8 @@ function evaluateSideBySideMerge(
 	};
 }
 
-export function mergeTableRegions(layouts: PageLayout[], onWarning?: OnWarning): PageLayout[] {
-	const result = mergeTableRegionsWithReport(layouts, onWarning);
-	return result.layouts;
-}
-
-export function mergeTableRegionsWithReport(
-	layouts: PageLayout[],
-	onWarning?: OnWarning,
-): { layouts: PageLayout[]; report: MergeReport } {
-	const report: MergeReport = {
+export function createMergeReport(): MergeReport {
+	return {
 		decisions: [],
 		totalMerged: 0,
 		tierCounts: {
@@ -297,24 +308,33 @@ export function mergeTableRegionsWithReport(
 		},
 		confirmedDirection: 'none',
 	};
+}
 
-	if (layouts.length === 0) {
-		lastMergeReport = report;
-		return { layouts, report };
-	}
+export function setLastMergeReport(report: MergeReport): void {
+	lastMergeReport = report;
+}
 
-	const patternConsistent = isSideBySidePatternConsistent(layouts);
+/**
+ * Merge horizontally-overlapping region pairs within a single page, mutating
+ * the page in place. Extracted from the batch pipeline so a streaming writer
+ * can process one page at a time with identical decisions.
+ */
+export function mergePageRegions(
+	layout: PageLayout,
+	patternConsistent: boolean,
+	report: MergeReport | null,
+	onWarning?: OnWarning,
+): void {
+	if (layout.regions.length <= 1) return;
+	layout.regions.sort((a, b) => a.bbox[0] - b.bbox[0]);
 
-	for (const layout of layouts) {
-		if (layout.regions.length <= 1) continue;
-		layout.regions.sort((a, b) => a.bbox[0] - b.bbox[0]);
+	let i = 0;
+	while (i < layout.regions.length - 1) {
+		const a = layout.regions[i]!;
+		const b = layout.regions[i + 1]!;
 
-		let i = 0;
-		while (i < layout.regions.length - 1) {
-			const a = layout.regions[i]!;
-			const b = layout.regions[i + 1]!;
-
-			const decision = evaluateSideBySideMerge(a, b, layout, patternConsistent);
+		const decision = evaluateSideBySideMerge(a, b, layout, patternConsistent);
+		if (report) {
 			report.decisions.push({
 				page: layout.page,
 				leftRegionId: a.id,
@@ -332,37 +352,49 @@ export function mergeTableRegionsWithReport(
 			} else {
 				report.tierCounts.flaggedAmbiguous++;
 			}
+		}
 
-			if (decision.shouldMerge) {
+		if (decision.shouldMerge) {
+			if (report) {
 				report.totalMerged++;
 				report.confirmedDirection = decision.direction;
-
-				// Append b's data rows into a
-				const bDataRows = b.rows.filter((r) => !r.isHeader);
-				for (const r of bDataRows) {
-					a.rows.push({ ...r, index: a.rows.length });
-				}
-				a.bbox = [
-					Math.min(a.bbox[0], b.bbox[0]),
-					Math.min(a.bbox[1], b.bbox[1]),
-					Math.max(a.bbox[2], b.bbox[2]),
-					Math.max(a.bbox[3], b.bbox[3]),
-				];
-				layout.regions.splice(i + 1, 1);
-			} else {
-				if (decision.tier === 'flagged-ambiguous') {
-					onWarning?.({
-						kind: 'table-merge-ambiguous' as any,
-						page: layout.page,
-						message: `possible split table, not auto-merged: ${decision.reason}`,
-						regionId: b.id,
-					});
-				}
-				i++;
 			}
+
+			// Append b's data rows into a
+			const bDataRows = b.rows.filter((r) => !r.isHeader);
+			for (const r of bDataRows) {
+				a.rows.push({ ...r, index: a.rows.length });
+			}
+			a.bbox = [
+				Math.min(a.bbox[0], b.bbox[0]),
+				Math.min(a.bbox[1], b.bbox[1]),
+				Math.max(a.bbox[2], b.bbox[2]),
+				Math.max(a.bbox[3], b.bbox[3]),
+			];
+			layout.regions.splice(i + 1, 1);
+		} else {
+			if (decision.tier === 'flagged-ambiguous') {
+				onWarning?.({
+					kind: 'table-merge-ambiguous' as any,
+					page: layout.page,
+					message: `possible split table, not auto-merged: ${decision.reason}`,
+					regionId: b.id,
+				});
+			}
+			i++;
 		}
 	}
+}
 
+export interface RegionIdAssigner {
+	assign(layout: PageLayout): void;
+}
+
+/**
+ * Stateful document-order region id reassignment. Holds only one-page
+ * lookback state, so it can run over a stream without retaining pages.
+ */
+export function createRegionIdAssigner(): RegionIdAssigner {
 	let baseId = 0;
 	let prevPage = -1;
 	let prevHadRegions = false;
@@ -370,36 +402,66 @@ export function mergeTableRegionsWithReport(
 	let prevRegionsCount = 0;
 	let prevLayout: PageLayout | null = null;
 
+	return {
+		assign(layout: PageLayout): void {
+			if (layout.regions.length === 0) {
+				const hasText = layout.titles.length > 0 || layout.outsideText.length > 0;
+				if (hasText && prevHadRegions) {
+					baseId += Math.max(prevRegionsCount, 1);
+					prevHadRegions = false;
+				}
+				return;
+			}
+
+			if (prevHadRegions && layout.page === prevPage + 1 && prevLayout) {
+				const topY = Math.min(...layout.regions.map((r) => r.bbox[1]));
+				const textAtTop = [...layout.titles, ...layout.outsideText].some((t) => t.bbox[3] <= topY);
+				const textAtPrevBottom = [...prevLayout.titles, ...prevLayout.outsideText].some((t) => t.bbox[1] >= prevMaxY);
+				if (textAtTop || textAtPrevBottom) {
+					baseId += Math.max(prevRegionsCount, 1);
+				}
+			} else if (prevHadRegions && layout.page > prevPage + 1) {
+				baseId += Math.max(prevRegionsCount, 1);
+			}
+
+			for (let rIdx = 0; rIdx < layout.regions.length; rIdx++) {
+				layout.regions[rIdx]!.id = baseId + rIdx;
+			}
+
+			prevPage = layout.page;
+			prevHadRegions = true;
+			prevMaxY = Math.max(...layout.regions.map((r) => r.bbox[3]));
+			prevRegionsCount = layout.regions.length;
+			prevLayout = layout;
+		},
+	};
+}
+
+export function mergeTableRegions(layouts: PageLayout[], onWarning?: OnWarning): PageLayout[] {
+	const result = mergeTableRegionsWithReport(layouts, onWarning);
+	return result.layouts;
+}
+
+export function mergeTableRegionsWithReport(
+	layouts: PageLayout[],
+	onWarning?: OnWarning,
+): { layouts: PageLayout[]; report: MergeReport } {
+	const report = createMergeReport();
+
+	if (layouts.length === 0) {
+		lastMergeReport = report;
+		return { layouts, report };
+	}
+
+	const patternConsistent = isSideBySidePatternConsistent(layouts);
+
 	for (const layout of layouts) {
-		if (layout.regions.length === 0) {
-			const hasText = layout.titles.length > 0 || layout.outsideText.length > 0;
-			if (hasText && prevHadRegions) {
-				baseId += Math.max(prevRegionsCount, 1);
-				prevHadRegions = false;
-			}
-			continue;
-		}
+		mergePageRegions(layout, patternConsistent, report, onWarning);
+	}
 
-		if (prevHadRegions && layout.page === prevPage + 1 && prevLayout) {
-			const topY = Math.min(...layout.regions.map((r) => r.bbox[1]));
-			const textAtTop = [...layout.titles, ...layout.outsideText].some((t) => t.bbox[3] <= topY);
-			const textAtPrevBottom = [...prevLayout.titles, ...prevLayout.outsideText].some((t) => t.bbox[1] >= prevMaxY);
-			if (textAtTop || textAtPrevBottom) {
-				baseId += Math.max(prevRegionsCount, 1);
-			}
-		} else if (prevHadRegions && layout.page > prevPage + 1) {
-			baseId += Math.max(prevRegionsCount, 1);
-		}
-
-		for (let rIdx = 0; rIdx < layout.regions.length; rIdx++) {
-			layout.regions[rIdx]!.id = baseId + rIdx;
-		}
-
-		prevPage = layout.page;
-		prevHadRegions = true;
-		prevMaxY = Math.max(...layout.regions.map((r) => r.bbox[3]));
-		prevRegionsCount = layout.regions.length;
-		prevLayout = layout;
+	const assigner = createRegionIdAssigner();
+	for (const layout of layouts) {
+		assigner.assign(layout);
 	}
 
 	lastMergeReport = report;

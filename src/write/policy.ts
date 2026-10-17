@@ -3,17 +3,19 @@ import { headerBlockSignature } from '../extract/merge.js';
 
 export { headerBlockSignature };
 
-export function resolvePolicy(
+/**
+ * Decide the effective worksheet policy from the region count of every
+ * non-empty page, in document order. Kept separate from `resolvePolicy`
+ * so a streaming writer can feed counts it accumulated without retaining
+ * the layouts themselves.
+ */
+export function resolvePolicyCounts(
 	policy: WorksheetPolicy,
-	layouts: PageLayout[],
+	regionCounts: number[],
 	onWarning?: OnWarning,
 ): 'per-region' | 'stacked' {
 	if (policy === 'per-region') return 'per-region';
 	if (policy === 'stacked') return 'stacked';
-
-	const regionCounts = layouts
-		.filter((l) => l.regions.length > 0)
-		.map((l) => l.regions.length);
 
 	if (regionCounts.length === 0) return 'stacked';
 
@@ -29,6 +31,18 @@ export function resolvePolicy(
 	}
 
 	return 'per-region';
+}
+
+export function resolvePolicy(
+	policy: WorksheetPolicy,
+	layouts: PageLayout[],
+	onWarning?: OnWarning,
+): 'per-region' | 'stacked' {
+	const regionCounts = layouts
+		.filter((l) => l.regions.length > 0)
+		.map((l) => l.regions.length);
+
+	return resolvePolicyCounts(policy, regionCounts, onWarning);
 }
 
 export function headerSignature(row: TableRow): string {
