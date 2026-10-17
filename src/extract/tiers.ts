@@ -220,7 +220,7 @@ export function extractPageLayout(
 	pageNum: number,
 	pageWidth: number,
 	pageHeight: number,
-	mode: ExtractionMode = 'auto',
+	mode: ExtractionMode = 'clustered',
 	onWarning?: OnWarning,
 	columnModel?: ColumnCountModel,
 ): PageLayout {

@@ -28,7 +28,7 @@ await convertPdf(await readFile('input.pdf'), {
 });
 ```
 
-`includePageColumn` adds the one-based source page number to each output row. `pageNumbers` selects zero-based pages. `sheetName` sets the worksheet name. `worksheetPolicy` can be `auto`, `per-region`, or `stacked`; `extraction` can be `auto`, `clustered`, `positions`, or `markdown-legacy`. `clustered` skips the native table-detection calls and builds regions entirely in JS, which is faster for text tables.
+`includePageColumn` adds the one-based source page number to each output row. `pageNumbers` selects zero-based pages. `sheetName` sets the worksheet name. `worksheetPolicy` can be `auto`, `per-region`, or `stacked`; `extraction` can be `clustered` (default), `auto`, `positions`, or `markdown-legacy`. `clustered` skips the native table-detection calls and builds regions entirely in JS, which is faster and complete on text tables. `auto` enables the native table-detection tiers for ruled or structure-mined PDFs; it rejects any native result that would drop text the clustered path already found, emitting a `tier-incomplete` warning.
 
 ## Memory
 

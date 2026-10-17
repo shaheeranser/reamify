@@ -28,7 +28,7 @@ export async function* extractPdfPagesLayout(
 	options: LayoutEngineOptions = {},
 ): AsyncGenerator<PageLayout> {
 	const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
-	const mode = options.extraction ?? 'auto';
+	const mode = options.extraction ?? 'clustered';
 	const onWarning = options.onWarning;
 
 	// Document-scoped view of the table column count, shared across pages so
