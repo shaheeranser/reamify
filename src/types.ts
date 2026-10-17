@@ -81,6 +81,7 @@ export type WarningKind =
 	| 'unassigned-text'
 	| 'needs-ocr'
 	| 'region-count-unstable'
+	| 'tier-incomplete'
 	| 'tier-fallback';
 
 export interface ConversionWarning {

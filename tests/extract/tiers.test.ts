@@ -92,4 +92,58 @@ describe('extractPageLayout', () => {
 			expect(region.source).toBe('clustered');
 		}
 	});
+
+	function tableItems(): TextItem[] {
+		return [
+			makeItem({ x: 30, y: 700, text: 'Name', width: 60 }),
+			makeItem({ x: 200, y: 700, text: 'Amount', width: 60 }),
+			makeItem({ x: 30, y: 680, text: 'Alice', width: 60 }),
+			makeItem({ x: 200, y: 680, text: '10', width: 60 }),
+		];
+	}
+
+	it('rejects an incomplete native region-table result and keeps the clustered baseline', () => {
+		const warnings: Array<{ kind: string }> = [];
+		mocks.extractTablesInRegions.mockReturnValueOnce([
+			{ page: 0, regions: [{ text: '| Name | Amount |', needsOcr: false }] },
+		]);
+
+		const layout = extractPageLayout(
+			Buffer.from('dummy'),
+			tableItems(),
+			0,
+			640,
+			800,
+			'auto',
+			(w) => warnings.push(w),
+		);
+
+		expect(layout.regions).toHaveLength(1);
+		expect(layout.regions[0]!.source).toBe('clustered');
+		const emitted = layout.regions[0]!.rows.flatMap((row) => row.cells.map((cell) => cell.text)).join(' ');
+		expect(emitted).toContain('Alice');
+		expect(emitted).toContain('10');
+		expect(warnings.some((w) => w.kind === 'tier-incomplete')).toBe(true);
+	});
+
+	it('accepts a native region-table result that retains all of the cluster text', () => {
+		const warnings: Array<{ kind: string }> = [];
+		mocks.extractTablesInRegions.mockReturnValueOnce([
+			{ page: 0, regions: [{ text: '| Name | Amount |\n|---|---|\n| Alice | 10 |', needsOcr: false }] },
+		]);
+
+		const layout = extractPageLayout(
+			Buffer.from('dummy'),
+			tableItems(),
+			0,
+			640,
+			800,
+			'auto',
+			(w) => warnings.push(w),
+		);
+
+		expect(layout.regions).toHaveLength(1);
+		expect(layout.regions[0]!.source).toBe('region-tables');
+		expect(warnings.some((w) => w.kind === 'tier-incomplete')).toBe(false);
+	});
 });

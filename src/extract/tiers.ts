@@ -27,6 +27,50 @@ import type {
 
 const VECTOR_GRID_DPI = 150;
 
+const WORD_SPLIT = /[^\p{L}\p{N}]+/u;
+
+function countWords(rows: TableRow[]): Map<string, number> {
+	const counts = new Map<string, number>();
+	for (const row of rows) {
+		for (const cell of row.cells) {
+			for (const token of cell.text.toLowerCase().split(WORD_SPLIT)) {
+				if (token.length > 0) counts.set(token, (counts.get(token) ?? 0) + 1);
+			}
+		}
+	}
+	return counts;
+}
+
+interface ContentCoverage {
+	recall: number;
+	missing: number;
+}
+
+/**
+ * How much of the clustered baseline's word content a native tier result
+ * retains.
+ *
+ * The native region-table extractor can silently drop trailing or irregular
+ * rows (observed losses from one row to 83% of a page's rows across real
+ * documents). The clustered path uses the same page items and is essentially
+ * always complete, so a native result that is missing *any* of the cluster's
+ * own words is treated as incomplete and rejected rather than allowed to
+ * discard content.
+ */
+function contentCoverage(baselineRows: TableRow[], candidateRows: TableRow[]): ContentCoverage {
+	const baseline = countWords(baselineRows);
+	if (baseline.size === 0) return { recall: 1, missing: 0 };
+
+	const candidate = countWords(candidateRows);
+	let total = 0;
+	let matched = 0;
+	for (const [token, count] of baseline) {
+		total += count;
+		matched += Math.min(count, candidate.get(token) ?? 0);
+	}
+	return { recall: total === 0 ? 1 : matched / total, missing: total - matched };
+}
+
 function tryStructuredCells(
 	buffer: Buffer,
 	regionBBox: BBox,
@@ -208,8 +252,10 @@ export function extractPageLayout(
 		cluster: ItemCluster;
 		bbox: BBox;
 		expectedCols: number;
+		baseline: TableRegion | null;
 		region: TableRegion | null;
-	}> = clusters.map((cluster) => {
+		native: boolean;
+	}> = clusters.map((cluster, index) => {
 		const regionBBox: BBox = [cluster.xMin, cluster.yMin, cluster.xMax, cluster.yMax];
 
 		// How wide this table is expected to be, from its own header structure
@@ -221,7 +267,12 @@ export function extractPageLayout(
 		columnModel?.observe(regionCols);
 		const expectedCols = Math.max(regionCols, columnModel?.expected() ?? 0);
 
-		return { cluster, bbox: regionBBox, expectedCols, region: null };
+		// Build the clustered baseline up front. It is the completeness
+		// reference every native tier result must survive, and the region used
+		// whenever a native tier cannot produce a more complete table.
+		const baseline = buildRegion(cluster.items, index, pageNum, pageHeight, regionBBox);
+
+		return { cluster, bbox: regionBBox, expectedCols, baseline, region: baseline, native: false };
 	});
 
 	if (mode === 'auto') {
@@ -231,15 +282,30 @@ export function extractPageLayout(
 			const build = builds[i]!;
 			try {
 				const structuredCells = tryStructuredCells(buffer, build.bbox, pageNum);
-				if (structuredCells && structuredCells.length > 0) {
-					build.region = {
-						id: i,
+				if (!structuredCells || structuredCells.length === 0) continue;
+
+				const rows = structuredCellsToRows(structuredCells);
+				const coverage = build.baseline
+					? contentCoverage(build.baseline.rows, rows)
+					: { recall: 1, missing: 0 };
+				if (coverage.missing > 0) {
+					onWarning?.({
+						kind: 'tier-incomplete',
 						page: pageNum,
-						bbox: build.bbox,
-						source: 'vector-grid-cells',
-						rows: structuredCellsToRows(structuredCells),
-					};
+						regionId: i,
+						message: `Tier A (vector grid) dropped ${coverage.missing} word(s) (${((1 - coverage.recall) * 100).toFixed(1)}%) from region ${i}; using clustered extraction instead`,
+					});
+					continue;
 				}
+
+				build.region = {
+					id: i,
+					page: pageNum,
+					bbox: build.bbox,
+					source: 'vector-grid-cells',
+					rows,
+				};
+				build.native = true;
 			} catch {
 				onWarning?.({
 					kind: 'tier-fallback',
@@ -254,7 +320,7 @@ export function extractPageLayout(
 		// the page instead of one call per region.
 		const pending = builds
 			.map((build, i) => ({ build, i }))
-			.filter((entry) => !entry.build.region);
+			.filter((entry) => !entry.build.native);
 
 		if (pending.length > 0) {
 			try {
@@ -266,17 +332,31 @@ export function extractPageLayout(
 				pending.forEach((entry, k) => {
 					const build = entry.build;
 					const mdRows = mdRowSets[k];
-					if (mdRows && mdRows.length > 0) {
-						if (build.expectedCols === 0 || mdRows[0]!.length >= build.expectedCols) {
-							build.region = {
-								id: entry.i,
-								page: pageNum,
-								bbox: build.bbox,
-								source: 'region-tables',
-								rows: markdownRowsToTableRows(mdRows, build.bbox),
-							};
-						}
+					if (!mdRows || mdRows.length === 0) return;
+					if (build.expectedCols > 0 && mdRows[0]!.length < build.expectedCols) return;
+
+					const rows = markdownRowsToTableRows(mdRows, build.bbox);
+					const coverage = build.baseline
+						? contentCoverage(build.baseline.rows, rows)
+						: { recall: 1, missing: 0 };
+					if (coverage.missing > 0) {
+						onWarning?.({
+							kind: 'tier-incomplete',
+							page: pageNum,
+							regionId: entry.i,
+							message: `Tier B (region tables) dropped ${coverage.missing} word(s) (${((1 - coverage.recall) * 100).toFixed(1)}%) from region ${entry.i}; using clustered extraction instead`,
+						});
+						return;
 					}
+
+					build.region = {
+						id: entry.i,
+						page: pageNum,
+						bbox: build.bbox,
+						source: 'region-tables',
+						rows,
+					};
+					build.native = true;
 				});
 			} catch {
 				for (const entry of pending) {
@@ -295,33 +375,23 @@ export function extractPageLayout(
 
 	for (let i = 0; i < builds.length; i++) {
 		const build = builds[i]!;
+
+		// `build.region` is the Tier C (clustered) baseline — built from the
+		// cluster that `discoverRegions` already established, without
+		// re-partitioning — unless a native tier produced a more complete
+		// table. Re-running region discovery here previously split a table's
+		// own columns off and dropped the last column without a warning.
 		if (build.region) {
 			regions.push(build.region);
 			continue;
 		}
 
-		// Tier C: the cluster was already established as a region by
-		// `discoverRegions`. Build exactly one region from it — re-running
-		// region discovery here re-partitioned the cluster and could split
-		// a table's own columns off, which previously led to the last
-		// column being dropped without any warning.
-		const fallbackRegion = buildRegion(
-			build.cluster.items,
-			i,
-			pageNum,
-			pageHeight,
-			build.bbox,
-		);
-		if (fallbackRegion) {
-			regions.push(fallbackRegion);
-		} else {
-			onWarning?.({
-				kind: 'tier-fallback',
-				page: pageNum,
-				message: `Tier C produced no region for cluster ${i}; its content was not emitted`,
-				regionId: i,
-			});
-		}
+		onWarning?.({
+			kind: 'tier-fallback',
+			page: pageNum,
+			message: `Tier C produced no region for cluster ${i}; its content was not emitted`,
+			regionId: i,
+		});
 	}
 
 	// Reassign stable ids.
