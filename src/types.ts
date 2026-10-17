@@ -81,6 +81,7 @@ export type WarningKind =
 	| 'unassigned-text'
 	| 'needs-ocr'
 	| 'region-count-unstable'
+	| 'tier-incomplete'
 	| 'tier-fallback';
 
 export interface ConversionWarning {
@@ -116,8 +117,16 @@ export type WorksheetPolicy = 'per-region' | 'stacked' | 'auto';
 
 /**
  * Extraction mode:
- * - `'auto'`: three-tier layout engine (default).
- * - `'positions'`: force Tier C (positioned-item clustering only).
+ * - `'clustered'`: default. Layout engine with no native table detection.
+ *   Region discovery, row clustering, and column inference run entirely in JS
+ *   (Tier C). Faster and complete on text tables.
+ * - `'auto'`: three-tier layout engine. Tier A and Tier B call into the native
+ *   inspector; Tier B is batched once per page. Use this for ruled or
+ *   structure-mined PDFs where the native tiers may discover more than the
+ *   clustered path. Any native result that drops words the clustered baseline
+ *   contains is rejected (see `tier-incomplete`).
+ * - `'positions'`: force the position-only page builder (Tier C, the
+ *   original `buildPageLayout` path).
  * - `'markdown-legacy'`: use the original markdownToRows path.
  */
-export type ExtractionMode = 'auto' | 'positions' | 'markdown-legacy';
+export type ExtractionMode = 'auto' | 'clustered' | 'positions' | 'markdown-legacy';

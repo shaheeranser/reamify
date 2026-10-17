@@ -7,7 +7,7 @@ import {
 	type PageRegions,
 } from '@firecrawl/pdf-inspector';
 
-import { discoverRegions } from './region.js';
+import { discoverRegions, type ItemCluster } from './region.js';
 import { buildPageLayout, buildRegion } from './headers.js';
 import { identifyTitles, assignOutsideText } from './text.js';
 import { markdownToRows } from '../legacy/parser.js';
@@ -26,6 +26,50 @@ import type {
 } from '../types.js';
 
 const VECTOR_GRID_DPI = 150;
+
+const WORD_SPLIT = /[^\p{L}\p{N}]+/u;
+
+function countWords(rows: TableRow[]): Map<string, number> {
+	const counts = new Map<string, number>();
+	for (const row of rows) {
+		for (const cell of row.cells) {
+			for (const token of cell.text.toLowerCase().split(WORD_SPLIT)) {
+				if (token.length > 0) counts.set(token, (counts.get(token) ?? 0) + 1);
+			}
+		}
+	}
+	return counts;
+}
+
+interface ContentCoverage {
+	recall: number;
+	missing: number;
+}
+
+/**
+ * How much of the clustered baseline's word content a native tier result
+ * retains.
+ *
+ * The native region-table extractor can silently drop trailing or irregular
+ * rows (observed losses from one row to 83% of a page's rows across real
+ * documents). The clustered path uses the same page items and is essentially
+ * always complete, so a native result that is missing *any* of the cluster's
+ * own words is treated as incomplete and rejected rather than allowed to
+ * discard content.
+ */
+function contentCoverage(baselineRows: TableRow[], candidateRows: TableRow[]): ContentCoverage {
+	const baseline = countWords(baselineRows);
+	if (baseline.size === 0) return { recall: 1, missing: 0 };
+
+	const candidate = countWords(candidateRows);
+	let total = 0;
+	let matched = 0;
+	for (const [token, count] of baseline) {
+		total += count;
+		matched += Math.min(count, candidate.get(token) ?? 0);
+	}
+	return { recall: total === 0 ? 1 : matched / total, missing: total - matched };
+}
 
 function tryStructuredCells(
 	buffer: Buffer,
@@ -98,31 +142,39 @@ function structuredCellsToRows(cells: StructuredCellJs[]): TableRow[] {
 	return rows;
 }
 
-function tryRegionTable(
+/**
+ * Extract markdown tables for every region on one page in a single native
+ * call. The inspector re-parses the whole document per call, so batching all
+ * of a page's regions into one `PageRegions` avoids paying that parse once
+ * per region. Returns one result per input bbox, in the same order; `null`
+ * where the region produced no usable table.
+ */
+function tryRegionTables(
 	buffer: Buffer,
-	regionBBox: BBox,
+	regionBBoxes: BBox[],
 	pageIdx: number,
-): string[][] | null {
+): Array<string[][] | null> {
+	if (regionBBoxes.length === 0) return [];
+
 	const pageRegions: PageRegions[] = [
 		{
 			page: pageIdx,
-			regions: [regionBBox as unknown as number[]],
+			regions: regionBBoxes as unknown as number[][],
 		},
 	];
 
 	const results = extractTablesInRegions(buffer, pageRegions);
-	if (results.length === 0) return null;
+	const regionTexts = results[0]?.regions ?? [];
 
-	const regionTexts = results[0]!;
-	if (regionTexts.regions.length === 0) return null;
+	return regionBBoxes.map((_, regionIdx) => {
+		const regionText = regionTexts[regionIdx];
+		if (!regionText || regionText.needsOcr || !regionText.text || regionText.text.trim().length === 0) {
+			return null;
+		}
 
-	const regionText = regionTexts.regions[0]!;
-	if (regionText.needsOcr || !regionText.text || regionText.text.trim().length === 0) {
-		return null;
-	}
-
-	const rows = markdownToRows(regionText.text);
-	return rows.length > 0 ? rows : null;
+		const rows = markdownToRows(regionText.text);
+		return rows.length > 0 ? rows : null;
+	});
 }
 
 function markdownRowsToTableRows(
@@ -168,7 +220,7 @@ export function extractPageLayout(
 	pageNum: number,
 	pageWidth: number,
 	pageHeight: number,
-	mode: ExtractionMode = 'auto',
+	mode: ExtractionMode = 'clustered',
 	onWarning?: OnWarning,
 	columnModel?: ColumnCountModel,
 ): PageLayout {
@@ -196,10 +248,14 @@ export function extractPageLayout(
 		return buildPageLayout(items, pageNum, pageWidth, pageHeight);
 	}
 
-	const regions: TableRegion[] = [];
-
-	for (let regionIdx = 0; regionIdx < clusters.length; regionIdx++) {
-		const cluster = clusters[regionIdx]!;
+	const builds: Array<{
+		cluster: ItemCluster;
+		bbox: BBox;
+		expectedCols: number;
+		baseline: TableRegion | null;
+		region: TableRegion | null;
+		native: boolean;
+	}> = clusters.map((cluster, index) => {
 		const regionBBox: BBox = [cluster.xMin, cluster.yMin, cluster.xMax, cluster.yMax];
 
 		// How wide this table is expected to be, from its own header structure
@@ -211,83 +267,131 @@ export function extractPageLayout(
 		columnModel?.observe(regionCols);
 		const expectedCols = Math.max(regionCols, columnModel?.expected() ?? 0);
 
-		let region: TableRegion | null = null;
+		// Build the clustered baseline up front. It is the completeness
+		// reference every native tier result must survive, and the region used
+		// whenever a native tier cannot produce a more complete table.
+		const baseline = buildRegion(cluster.items, index, pageNum, pageHeight, regionBBox);
 
-		if (mode === 'auto') {
+		return { cluster, bbox: regionBBox, expectedCols, baseline, region: baseline, native: false };
+	});
+
+	if (mode === 'auto') {
+		// Tier A: vector-ruled grids. The inspector exposes no batch form for
+		// grid detection, so this stays one call per region.
+		for (let i = 0; i < builds.length; i++) {
+			const build = builds[i]!;
 			try {
-				const structuredCells = tryStructuredCells(buffer, regionBBox, pageNum);
-				if (structuredCells && structuredCells.length > 0) {
-					const rows = structuredCellsToRows(structuredCells);
-					region = {
-						id: regionIdx,
+				const structuredCells = tryStructuredCells(buffer, build.bbox, pageNum);
+				if (!structuredCells || structuredCells.length === 0) continue;
+
+				const rows = structuredCellsToRows(structuredCells);
+				const coverage = build.baseline
+					? contentCoverage(build.baseline.rows, rows)
+					: { recall: 1, missing: 0 };
+				if (coverage.missing > 0) {
+					onWarning?.({
+						kind: 'tier-incomplete',
 						page: pageNum,
-						bbox: regionBBox,
-						source: 'vector-grid-cells',
+						regionId: i,
+						message: `Tier A (vector grid) dropped ${coverage.missing} word(s) (${((1 - coverage.recall) * 100).toFixed(1)}%) from region ${i}; using clustered extraction instead`,
+					});
+					continue;
+				}
+
+				build.region = {
+					id: i,
+					page: pageNum,
+					bbox: build.bbox,
+					source: 'vector-grid-cells',
+					rows,
+				};
+				build.native = true;
+			} catch {
+				onWarning?.({
+					kind: 'tier-fallback',
+					page: pageNum,
+					message: `Tier A (vector grid) failed for region ${i}, trying Tier B`,
+					regionId: i,
+				});
+			}
+		}
+
+		// Tier B: region table detection, one native call for every region on
+		// the page instead of one call per region.
+		const pending = builds
+			.map((build, i) => ({ build, i }))
+			.filter((entry) => !entry.build.native);
+
+		if (pending.length > 0) {
+			try {
+				const mdRowSets = tryRegionTables(
+					buffer,
+					pending.map((entry) => entry.build.bbox),
+					pageNum,
+				);
+				pending.forEach((entry, k) => {
+					const build = entry.build;
+					const mdRows = mdRowSets[k];
+					if (!mdRows || mdRows.length === 0) return;
+					if (build.expectedCols > 0 && mdRows[0]!.length < build.expectedCols) return;
+
+					const rows = markdownRowsToTableRows(mdRows, build.bbox);
+					const coverage = build.baseline
+						? contentCoverage(build.baseline.rows, rows)
+						: { recall: 1, missing: 0 };
+					if (coverage.missing > 0) {
+						onWarning?.({
+							kind: 'tier-incomplete',
+							page: pageNum,
+							regionId: entry.i,
+							message: `Tier B (region tables) dropped ${coverage.missing} word(s) (${((1 - coverage.recall) * 100).toFixed(1)}%) from region ${entry.i}; using clustered extraction instead`,
+						});
+						return;
+					}
+
+					build.region = {
+						id: entry.i,
+						page: pageNum,
+						bbox: build.bbox,
+						source: 'region-tables',
 						rows,
 					};
-				}
-			} catch {
-				onWarning?.({
-					kind: 'tier-fallback',
-					page: pageNum,
-					message: `Tier A (vector grid) failed for region ${regionIdx}, trying Tier B`,
-					regionId: regionIdx,
+					build.native = true;
 				});
+			} catch {
+				for (const entry of pending) {
+					onWarning?.({
+						kind: 'tier-fallback',
+						page: pageNum,
+						message: `Tier B (region tables) failed for region ${entry.i}, falling back to Tier C`,
+						regionId: entry.i,
+					});
+				}
 			}
 		}
+	}
 
-		if (!region && mode === 'auto') {
-			try {
-				const mdRows = tryRegionTable(buffer, regionBBox, pageNum);
-				if (mdRows && mdRows.length > 0) {
-					if (expectedCols === 0 || mdRows[0]!.length >= expectedCols) {
-						const rows = markdownRowsToTableRows(mdRows, regionBBox);
-						region = {
-							id: regionIdx,
-							page: pageNum,
-							bbox: regionBBox,
-							source: 'region-tables',
-							rows,
-						};
-					}
-				}
-			} catch {
-				onWarning?.({
-					kind: 'tier-fallback',
-					page: pageNum,
-					message: `Tier B (region tables) failed for region ${regionIdx}, falling back to Tier C`,
-					regionId: regionIdx,
-				});
-			}
-		}
+	const regions: TableRegion[] = [];
 
-		if (!region) {
-			// Tier C: the cluster was already established as a region by
-			// `discoverRegions`. Build exactly one region from it — re-running
-			// region discovery here re-partitioned the cluster and could split
-			// a table's own columns off, which previously led to the last
-			// column being dropped without any warning.
-			const fallbackRegion = buildRegion(
-				cluster.items,
-				regionIdx,
-				pageNum,
-				pageHeight,
-				regionBBox,
-			);
-			if (fallbackRegion) {
-				regions.push(fallbackRegion);
-			} else {
-				onWarning?.({
-					kind: 'tier-fallback',
-					page: pageNum,
-					message: `Tier C produced no region for cluster ${regionIdx}; its content was not emitted`,
-					regionId: regionIdx,
-				});
-			}
+	for (let i = 0; i < builds.length; i++) {
+		const build = builds[i]!;
+
+		// `build.region` is the Tier C (clustered) baseline — built from the
+		// cluster that `discoverRegions` already established, without
+		// re-partitioning — unless a native tier produced a more complete
+		// table. Re-running region discovery here previously split a table's
+		// own columns off and dropped the last column without a warning.
+		if (build.region) {
+			regions.push(build.region);
 			continue;
 		}
 
-		regions.push(region);
+		onWarning?.({
+			kind: 'tier-fallback',
+			page: pageNum,
+			message: `Tier C produced no region for cluster ${i}; its content was not emitted`,
+			regionId: i,
+		});
 	}
 
 	// Reassign stable ids.

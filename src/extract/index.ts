@@ -10,7 +10,11 @@ import type { PageLayout, OnWarning, ExtractionMode } from '../types.js';
 
 export { mergeTableRegions, mergeTableRegionsWithReport, getLastMergeReport, headerBlockSignature };
 
-const DEFAULT_BATCH_SIZE = 25;
+// Measured on a 757-page document: batches of 4 run at the same wall-clock as
+// batches of 25 (~90s) but hold far fewer page text-items resident at once
+// (~420 MiB vs ~790 MiB peak), because the native inspector retains memory per
+// call. Keep this small so extraction memory stays bounded.
+const DEFAULT_BATCH_SIZE = 4;
 
 export interface LayoutEngineOptions {
 	pageNumbers?: number[];
@@ -24,7 +28,7 @@ export async function* extractPdfPagesLayout(
 	options: LayoutEngineOptions = {},
 ): AsyncGenerator<PageLayout> {
 	const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
-	const mode = options.extraction ?? 'auto';
+	const mode = options.extraction ?? 'clustered';
 	const onWarning = options.onWarning;
 
 	// Document-scoped view of the table column count, shared across pages so

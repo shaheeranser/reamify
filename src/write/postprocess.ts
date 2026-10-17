@@ -162,55 +162,82 @@ function coveredByEmittedSchema(parts: Set<string>, emitted: Set<string>[]): boo
  * its labels) is also dropped, so split last-column headers cannot sneak
  * through as a "new" table.
  */
-export function filterRepeatedHeaders(
-	layouts: PageLayout[],
-	canonicalLabels: string[],
-): void {
+export interface HeaderFilterState {
+	headerSig: string;
+	canonicalParts: Set<string>;
+	/** Document-wide: first kept header of each distinct schema. */
+	emittedSchemas: Set<string>[];
+}
+
+/**
+ * Create the document-scope filter state from the canonical labels. Returns
+ * null when there is no usable canonical signature (nothing to filter).
+ */
+export function createHeaderFilterState(canonicalLabels: string[]): HeaderFilterState | null {
 	const headerSig = buildSignature(canonicalLabels);
-	if (!headerSig) return;
+	if (!headerSig) return null;
 
 	const canonicalParts = new Set(
 		canonicalLabels.map(normalize).filter((s) => s.length > 0),
 	);
-	// Document-wide: first kept header of each distinct schema. Canonical
-	// labels are seeded so subset matches work even before the first row
-	// is classified, once at least one header has been emitted.
-	const emittedSchemas: Set<string>[] = [];
+
+	return {
+		headerSig,
+		canonicalParts,
+		emittedSchemas: [],
+	};
+}
+
+/**
+ * Filter repeated header rows for a single region, mutating it in place and
+ * advancing the shared document-scope state. Extracted so a streaming writer
+ * can process one region at a time with identical document-wide behavior.
+ */
+export function filterRegionHeaders(region: TableRegion, state: HeaderFilterState): void {
+	const localHeaderSigs = new Set<string>();
+	for (const row of region.rows) {
+		if (row.isHeader) {
+			localHeaderSigs.add(rowSignature(row));
+		}
+	}
+
+	region.rows = region.rows.filter((row) => {
+		const sig = rowSignature(row);
+		const parts = rowLabelSet(row);
+		const subsetOfCanonical = parts.size > 0
+			&& [...parts].every((p) => state.canonicalParts.has(p));
+		const isRepeatOfEmitted = coveredByEmittedSchema(parts, state.emittedSchemas)
+			|| (state.emittedSchemas.length > 0 && subsetOfCanonical);
+		const looksLikeHeader = sig === state.headerSig
+			|| localHeaderSigs.has(sig)
+			|| isRepeatOfEmitted;
+
+		if (!looksLikeHeader) return true;
+
+		// Keep only the first header of a schema that is not a subset
+		// of one already written (document scope, not per-region idx).
+		if (row.isHeader && !isRepeatOfEmitted) {
+			state.emittedSchemas.push(parts.size > 0 ? parts : new Set(sig.split('|')));
+			return true;
+		}
+		return false;
+	});
+
+	for (let i = 0; i < region.rows.length; i++) {
+		region.rows[i]!.index = i;
+	}
+}
+
+export function filterRepeatedHeaders(
+	layouts: PageLayout[],
+	canonicalLabels: string[],
+): void {
+	const state = createHeaderFilterState(canonicalLabels);
+	if (!state) return;
 
 	for (const layout of layouts) {
 		for (const region of layout.regions) {
-			const localHeaderSigs = new Set<string>();
-			for (const row of region.rows) {
-				if (row.isHeader) {
-					localHeaderSigs.add(rowSignature(row));
-				}
-			}
-
-			region.rows = region.rows.filter((row) => {
-				const sig = rowSignature(row);
-				const parts = rowLabelSet(row);
-				const subsetOfCanonical = parts.size > 0
-					&& [...parts].every((p) => canonicalParts.has(p));
-				const isRepeatOfEmitted = coveredByEmittedSchema(parts, emittedSchemas)
-					|| (emittedSchemas.length > 0 && subsetOfCanonical);
-				const looksLikeHeader = sig === headerSig
-					|| localHeaderSigs.has(sig)
-					|| isRepeatOfEmitted;
-
-				if (!looksLikeHeader) return true;
-
-				// Keep only the first header of a schema that is not a subset
-				// of one already written (document scope, not per-region idx).
-				if (row.isHeader && !isRepeatOfEmitted) {
-					emittedSchemas.push(parts.size > 0 ? parts : new Set(sig.split('|')));
-					return true;
-				}
-				return false;
-			});
-
-			for (let i = 0; i < region.rows.length; i++) {
-				region.rows[i]!.index = i;
-			}
+			filterRegionHeaders(region, state);
 		}
 	}
 }

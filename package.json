@@ -1,6 +1,6 @@
 {
   "name": "@shaheeranser/reamify",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Memory-efficient PDF-to-XLSX table extraction for Node.js",
   "keywords": [
     "pdf",
@@ -21,7 +21,9 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "eval:fetch": "node scripts/eval/fetch-corpus.mjs",
+    "eval": "node scripts/eval/harness.mjs"
   },
   "repository": {
     "type": "git",

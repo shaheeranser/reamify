@@ -22,9 +22,9 @@ export type OnDiagnostics = (diagnostics: ConversionDiagnostics) => void;
 
 export type ConvertOptions = InspectorOptions &
 	WorkbookOptions & {
-		/** Extraction mode: 'auto' (default), 'positions', or 'markdown-legacy'. */
+		/** Extraction mode: 'clustered' (default), 'auto', 'positions', or 'markdown-legacy'. */
 		extraction?: ExtractionMode;
-		/** Pages per extraction batch for bounded memory. Default: 25. */
+		/** Pages per extraction batch for bounded memory. Default: 4. */
 		batchSize?: number;
 		/** Warning callback for ambiguous cells, OCR needs, etc. */
 		onWarning?: OnWarning;
@@ -40,14 +40,17 @@ export type WorkbookResult = Buffer | ArrayBuffer | void;
 /**
  * Convert a PDF buffer to an XLSX workbook.
  *
- * By default uses the three-tier layout engine for geometry-aware extraction.
- * Pass `extraction: 'markdown-legacy'` to use the original markdown path.
+ * By default uses the clustered geometry-aware layout engine, which builds
+ * regions entirely in JS and is both faster and complete on text tables. Pass
+ * `extraction: 'auto'` to enable the native table-detection tiers for ruled or
+ * structure-mined PDFs, or `extraction: 'markdown-legacy'` for the original
+ * markdown path.
  */
 export async function convertPdf(
 	pdf: Buffer,
 	options: ConvertOptions = {},
 ): Promise<WorkbookResult> {
-	const mode = options.extraction ?? 'auto';
+	const mode = options.extraction ?? 'clustered';
 
 	if (mode === 'markdown-legacy') {
 		// Legacy path: use the original markdown-based engine
@@ -80,6 +83,7 @@ export async function convertPdf(
 		onWarning: options.onWarning,
 		keepRepeatedHeaders: (options as Record<string, unknown>).keepRepeatedHeaders as boolean | undefined,
 		mergeContinuations: options.mergeContinuations,
+		spillThresholdBytes: options.spillThresholdBytes,
 	});
 
 	options.onDiagnostics?.(result.diagnostics);
