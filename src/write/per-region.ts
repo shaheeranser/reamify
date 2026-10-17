@@ -5,14 +5,14 @@ import { headerSignature, headerBlockSignature } from './policy.js';
 import { writeLegacyPages } from './legacy.js';
 
 export async function writePerRegion(
-	layouts: PageLayout[],
+	layouts: AsyncIterable<PageLayout>,
 	options: WorkbookOptions,
 	diag: ConversionDiagnostics,
 	baseName: string,
 	includePageColumn: boolean,
 	keepRepeatedHeaders: boolean,
+	maxRegions: number,
 ): Promise<WorkbookResult> {
-	const maxRegions = Math.max(...layouts.flatMap((l) => l.regions.map((r) => r.id + 1)), 0);
 	if (maxRegions === 0) {
 		return writeLegacyPages([], options, diag);
 	}
@@ -48,7 +48,7 @@ export async function writePerRegion(
 	let entryCount = 0;
 	const includeEntry = !!options.includeEntryColumn;
 
-	for (const layout of layouts) {
+	for await (const layout of layouts) {
 		diag.totalPages++;
 		if (layout.needsOcr) diag.ocrPages++;
 

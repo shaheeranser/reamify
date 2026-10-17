@@ -24,7 +24,7 @@ export type ConvertOptions = InspectorOptions &
 	WorkbookOptions & {
 		/** Extraction mode: 'auto' (default), 'clustered', 'positions', or 'markdown-legacy'. */
 		extraction?: ExtractionMode;
-		/** Pages per extraction batch for bounded memory. Default: 25. */
+		/** Pages per extraction batch for bounded memory. Default: 4. */
 		batchSize?: number;
 		/** Warning callback for ambiguous cells, OCR needs, etc. */
 		onWarning?: OnWarning;
@@ -80,6 +80,7 @@ export async function convertPdf(
 		onWarning: options.onWarning,
 		keepRepeatedHeaders: (options as Record<string, unknown>).keepRepeatedHeaders as boolean | undefined,
 		mergeContinuations: options.mergeContinuations,
+		spillThresholdBytes: options.spillThresholdBytes,
 	});
 
 	options.onDiagnostics?.(result.diagnostics);

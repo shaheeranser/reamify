@@ -3,7 +3,7 @@ import type { PageLayout, ConversionDiagnostics } from '../types.js';
 import type { WorkbookOptions, WorkbookResult } from './index.js';
 
 export async function writeStacked(
-	layouts: PageLayout[],
+	layouts: AsyncIterable<PageLayout>,
 	options: WorkbookOptions,
 	diag: ConversionDiagnostics,
 	baseName: string,
@@ -30,7 +30,7 @@ export async function writeStacked(
 		if (isStreaming) row.commit();
 	};
 
-	for (const layout of layouts) {
+	for await (const layout of layouts) {
 		diag.totalPages++;
 		if (layout.needsOcr) diag.ocrPages++;
 

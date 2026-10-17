@@ -30,6 +30,10 @@ await convertPdf(await readFile('input.pdf'), {
 
 `includePageColumn` adds the one-based source page number to each output row. `pageNumbers` selects zero-based pages. `sheetName` sets the worksheet name. `worksheetPolicy` can be `auto`, `per-region`, or `stacked`; `extraction` can be `auto`, `clustered`, `positions`, or `markdown-legacy`. `clustered` skips the native table-detection calls and builds regions entirely in JS, which is faster for text tables.
 
+## Memory
+
+`convertPdf` processes pages with bounded memory: it holds at most one page's rows in memory, keeping the page stream in a small in-memory budget (`spillThresholdBytes`, default 32 MiB; set to `0` to always spill) and spilling the rest to a temporary file that is deleted afterwards. `batchSize` (default 4) bounds how many pages' text items the native inspector holds at once. Peak memory stays roughly constant as the document grows, and workbook content is unchanged.
+
 ## Convert pre-extracted pages
 
 `convertPages` accepts a synchronous or asynchronous iterable of `string[][]` pages. This is the browser-compatible entry point when PDF extraction happens elsewhere.
