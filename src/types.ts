@@ -116,8 +116,15 @@ export type WorksheetPolicy = 'per-region' | 'stacked' | 'auto';
 
 /**
  * Extraction mode:
- * - `'auto'`: three-tier layout engine (default).
- * - `'positions'`: force Tier C (positioned-item clustering only).
+ * - `'auto'`: three-tier layout engine (default). Tier A and Tier B call
+ *   into the native inspector; Tier B is batched once per page.
+ * - `'clustered'`: layout engine with no native table detection. Region
+ *   discovery, row clustering, and column inference run entirely in JS
+ *   (Tier C). Use this when the pages are text tables rather than ruled or
+ *   structure-mined tables, so the native Tier A/B calls cannot discover
+ *   anything the clustered path does not.
+ * - `'positions'`: force the position-only page builder (Tier C, the
+ *   original `buildPageLayout` path).
  * - `'markdown-legacy'`: use the original markdownToRows path.
  */
-export type ExtractionMode = 'auto' | 'positions' | 'markdown-legacy';
+export type ExtractionMode = 'auto' | 'clustered' | 'positions' | 'markdown-legacy';

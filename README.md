@@ -28,7 +28,7 @@ await convertPdf(await readFile('input.pdf'), {
 });
 ```
 
-`includePageColumn` adds the one-based source page number to each output row. `pageNumbers` selects zero-based pages. `sheetName` sets the worksheet name. `worksheetPolicy` can be `auto`, `per-region`, or `stacked`; `extraction` can be `auto`, `positions`, or `markdown-legacy`.
+`includePageColumn` adds the one-based source page number to each output row. `pageNumbers` selects zero-based pages. `sheetName` sets the worksheet name. `worksheetPolicy` can be `auto`, `per-region`, or `stacked`; `extraction` can be `auto`, `clustered`, `positions`, or `markdown-legacy`. `clustered` skips the native table-detection calls and builds regions entirely in JS, which is faster for text tables.
 
 ## Convert pre-extracted pages
 

@@ -22,7 +22,7 @@ export type OnDiagnostics = (diagnostics: ConversionDiagnostics) => void;
 
 export type ConvertOptions = InspectorOptions &
 	WorkbookOptions & {
-		/** Extraction mode: 'auto' (default), 'positions', or 'markdown-legacy'. */
+		/** Extraction mode: 'auto' (default), 'clustered', 'positions', or 'markdown-legacy'. */
 		extraction?: ExtractionMode;
 		/** Pages per extraction batch for bounded memory. Default: 25. */
 		batchSize?: number;
