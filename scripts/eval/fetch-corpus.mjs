@@ -62,7 +62,9 @@ async function main() {
 
 	if (options.stats) ensureSandbox();
 
-	const manifest = { fetchedAt: new Date().toISOString(), documents: [] };
+	// Merge into the existing manifest so a partial fetch (e.g. --only or a
+	// non-heavy run) does not drop previously recorded documents.
+	const entryById = new Map(previousById);
 
 	for (const doc of selected) {
 		const targetPath = doc.localPath
@@ -117,7 +119,7 @@ async function main() {
 			console.warn(`WARN ${doc.id} content changed on disk vs manifest`);
 		}
 
-		manifest.documents.push(entry);
+		entryById.set(doc.id, entry);
 		console.log(
 			`OK   ${doc.id.padEnd(24)} ${(buffer.length / 1024).toFixed(0).padStart(7)} KiB` +
 				(entry.pages ? `  ${String(entry.pages).padStart(4)} pages` : '') +
@@ -126,6 +128,10 @@ async function main() {
 		);
 	}
 
+	const manifest = {
+		fetchedAt: new Date().toISOString(),
+		documents: corpus.documents.map((doc) => entryById.get(doc.id)).filter(Boolean),
+	};
 	fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 	console.log(`\nWrote ${path.relative(repoRoot, manifestPath)} (${manifest.documents.length} documents)`);
 }

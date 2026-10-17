@@ -104,17 +104,30 @@ function loadCorpus(only, heavy) {
 	const manifestPath = path.join(corpusDir, 'manifest.json');
 	if (!fs.existsSync(manifestPath)) throw new Error('Corpus manifest missing; run fetch-corpus.mjs first');
 	const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+	const corpus = JSON.parse(fs.readFileSync(path.join(repoRoot, 'scripts', 'eval', 'corpus.json'), 'utf8'));
+	const metaById = new Map(corpus.documents.map((doc) => [doc.id, doc]));
+
 	return manifest.documents
-		.filter((doc) => !only || only.has(doc.id))
-		.filter((doc) => heavy || !['large', 'huge'].includes(doc.sizeClass))
-		.map((doc) => ({
-			id: doc.id,
-			kind: 'corpus',
-			pdfPath: path.join(repoRoot, doc.path),
-			tags: doc.tags,
-			sizeClass: doc.sizeClass,
-			pages: doc.pages,
-		}));
+		.filter((doc) => {
+			const meta = metaById.get(doc.id);
+			if (!meta) return false;
+			// The `heavy` flag is the single source of truth; an explicit
+			// `--only` selection overrides it so a single heavy document can be
+			// evaluated without enabling the whole heavy set.
+			return only?.has(doc.id) || heavy || !meta.heavy;
+		})
+		.map((doc) => {
+			const meta = metaById.get(doc.id);
+			return {
+				id: doc.id,
+				kind: 'corpus',
+				pdfPath: path.join(repoRoot, doc.path),
+				tags: doc.tags,
+				sizeClass: doc.sizeClass,
+				pages: doc.pages,
+				heavy: meta?.heavy ?? false,
+			};
+		});
 }
 
 async function measureDocument(doc, tools, args, artifactDir) {

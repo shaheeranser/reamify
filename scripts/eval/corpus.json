@@ -44,6 +44,34 @@
 			"heavy": false
 		},
 		{
+			"id": "tabula-rulings",
+			"url": "https://raw.githubusercontent.com/tabulapdf/tabula-java/master/src/test/resources/technology/tabula/should_detect_rulings.pdf",
+			"tags": ["table", "ruled"],
+			"sizeClass": "medium",
+			"heavy": false
+		},
+		{
+			"id": "tabula-spreadsheet",
+			"url": "https://raw.githubusercontent.com/tabulapdf/tabula-java/master/src/test/resources/technology/tabula/spreadsheet_no_bounding_frame.pdf",
+			"tags": ["table", "ruled", "spreadsheet"],
+			"sizeClass": "medium",
+			"heavy": false
+		},
+		{
+			"id": "tabula-spanning-cells",
+			"url": "https://raw.githubusercontent.com/tabulapdf/tabula-java/master/src/test/resources/technology/tabula/spanning_cells.pdf",
+			"tags": ["table", "ruled", "spanning"],
+			"sizeClass": "small",
+			"heavy": false
+		},
+		{
+			"id": "tabula-sydney-disclosure",
+			"url": "https://raw.githubusercontent.com/tabulapdf/tabula-java/master/src/test/resources/technology/tabula/sydney_disclosure_contract.pdf",
+			"tags": ["table", "ruled"],
+			"sizeClass": "small",
+			"heavy": false
+		},
+		{
 			"id": "arxiv-attention",
 			"url": "https://arxiv.org/pdf/1706.03762",
 			"tags": ["paper", "tables"],
@@ -72,23 +100,72 @@
 			"heavy": false
 		},
 		{
+			"id": "federalreserve-fomc-2023",
+			"url": "https://www.federalreserve.gov/monetarypolicy/files/fomcminutes20231213.pdf",
+			"tags": ["report"],
+			"sizeClass": "small",
+			"heavy": false
+		},
+		{
+			"id": "irs-p505",
+			"url": "https://www.irs.gov/pub/irs-pdf/p505.pdf",
+			"tags": ["report", "tables", "large"],
+			"sizeClass": "large",
+			"heavy": false
+		},
+		{
+			"id": "irs-p590a",
+			"url": "https://www.irs.gov/pub/irs-pdf/p590a.pdf",
+			"tags": ["report", "tables", "large"],
+			"sizeClass": "large",
+			"heavy": false
+		},
+		{
+			"id": "irs-p334",
+			"url": "https://www.irs.gov/pub/irs-pdf/p334.pdf",
+			"tags": ["report", "tables", "large"],
+			"sizeClass": "large",
+			"heavy": false
+		},
+		{
+			"id": "irs-p17",
+			"url": "https://www.irs.gov/pub/irs-pdf/p17.pdf",
+			"tags": ["report", "tables", "large"],
+			"sizeClass": "large",
+			"heavy": false
+		},
+		{
+			"id": "govinfo-erp-2023",
+			"url": "https://www.govinfo.gov/content/pkg/ERP-2023/pdf/ERP-2023.pdf",
+			"tags": ["report", "tables", "large", "government"],
+			"sizeClass": "large",
+			"heavy": true
+		},
+		{
+			"id": "govinfo-budget-2024-app",
+			"url": "https://www.govinfo.gov/content/pkg/BUDGET-2024-APP/pdf/BUDGET-2024-APP.pdf",
+			"tags": ["report", "tables", "huge", "government"],
+			"sizeClass": "huge",
+			"heavy": true
+		},
+		{
 			"id": "arxiv-gpt4",
 			"url": "https://arxiv.org/pdf/2303.08774",
-			"tags": ["paper", "tables"],
+			"tags": ["paper", "tables", "large"],
 			"sizeClass": "large",
 			"heavy": true
 		},
 		{
 			"id": "irs-p15",
 			"url": "https://www.irs.gov/pub/irs-pdf/p15.pdf",
-			"tags": ["report", "tables"],
+			"tags": ["report", "tables", "large"],
 			"sizeClass": "large",
 			"heavy": true
 		},
 		{
 			"id": "irs-i1040gi",
 			"url": "https://www.irs.gov/pub/irs-pdf/i1040gi.pdf",
-			"tags": ["report", "tables"],
+			"tags": ["report", "tables", "large"],
 			"sizeClass": "large",
 			"heavy": true
 		},
