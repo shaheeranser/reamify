@@ -13,7 +13,7 @@
  *   --warmup=N      discarded warm-up runs before measuring (default 1)
  *   --heavy         include large/heavy documents
  *   --only=id,id    restrict to specific document ids
- *   --tools=a,b     reamify-auto, reamify-clustered, pdf-to-excel (default all)
+ *   --tools=a,b     reamify-default, reamify-auto, pdf-to-excel (default: default + pdf-to-excel)
  *   --timeout=ms    per-run timeout (default 600000)
  *   --no-fetch      assume the corpus is already downloaded
  *   --no-gt         skip ground-truth generation
@@ -37,13 +37,13 @@ import { readWorkbook, pdfTextTokens, coverage, compareToGroundTruth } from './m
 import { generateGroundTruth } from './ground-truth.mjs';
 
 const REAMIFY_VARIANTS = {
+	'reamify-default': { tool: 'reamify', variant: 'default', label: 'reamify (default)' },
 	'reamify-auto': { tool: 'reamify', variant: 'auto', label: 'reamify (auto)' },
-	'reamify-clustered': { tool: 'reamify', variant: 'clustered', label: 'reamify (clustered)' },
 	'pdf-to-excel': { tool: 'pdf-to-excel', variant: 'default', label: 'pdf-to-excel' },
 };
 
 function parseArgs(argv) {
-	const args = { runs: 3, warmup: 1, heavy: false, only: null, tools: Object.keys(REAMIFY_VARIANTS), timeout: 600000, fetch: true, gt: true };
+	const args = { runs: 3, warmup: 1, heavy: false, only: null, tools: ['reamify-default', 'pdf-to-excel'], timeout: 600000, fetch: true, gt: true };
 	for (const arg of argv) {
 		if (arg.startsWith('--runs=')) args.runs = Number(arg.slice(7)) || args.runs;
 		else if (arg.startsWith('--warmup=')) args.warmup = Number(arg.slice(9)) || 0;
@@ -111,10 +111,11 @@ function loadCorpus(only, heavy) {
 		.filter((doc) => {
 			const meta = metaById.get(doc.id);
 			if (!meta) return false;
-			// The `heavy` flag is the single source of truth; an explicit
-			// `--only` selection overrides it so a single heavy document can be
+			// An explicit `--only` selection is an allowlist that also
+			// overrides the heavy gate, so a single heavy document can be
 			// evaluated without enabling the whole heavy set.
-			return only?.has(doc.id) || heavy || !meta.heavy;
+			if (only) return only.has(doc.id);
+			return heavy || !meta.heavy;
 		})
 		.map((doc) => {
 			const meta = metaById.get(doc.id);

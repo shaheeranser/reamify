@@ -30,7 +30,11 @@ function peakRssBytes() {
 async function runReamify() {
 	const mod = await import(process.env.REAMIFY_DIST);
 	const source = fs.readFileSync(pdfPath);
-	await mod.convertPdf(source, { filename: outPath, extraction: variant });
+	const options = { filename: outPath };
+	// 'default' means "do not pass extraction", so the run exercises the
+	// package's public default rather than a hardcoded mode.
+	if (variant && variant !== 'default') options.extraction = variant;
+	await mod.convertPdf(source, options);
 }
 
 async function runPdfToExcel() {

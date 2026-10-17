@@ -36,7 +36,7 @@ npm run eval                    # fetch corpus, build, sweep all tools
 npm run eval -- --runs=5        # more measured runs
 npm run eval -- --heavy         # include large/huge documents
 npm run eval -- --only=arxiv-attention,irs-fw9
-npm run eval -- --tools=reamify-clustered,pdf-to-excel
+npm run eval -- --tools=reamify-default,pdf-to-excel
 npm run eval:fetch -- --only=arxiv-attention   # download only
 ```
 
@@ -69,8 +69,10 @@ inspection. Both directories are under the gitignored `eval/`.
   columns before drawing conclusions.
 - `pdf-to-excel` writes one row per detected text line and does not separate
   columns, which shows up as low precision and high output cell counts.
-- `reamify-auto` performs native per-region extraction and is consistently the
-  slowest reamify mode; `reamify-clustered` is the pure-JS path.
+- `reamify-default` runs the package exactly as a consumer would (no
+  `extraction` option), which is now the clustered path. `reamify-auto` forces
+  the native tiers; it is consistently the slowest mode and, on text tables,
+  produces the same output because incomplete native results are rejected.
 - Heavy documents (including `eval/Defaulters-List (1).pdf`) are excluded by
   default. Running the `auto` mode over hundreds of pages can take a very long
   time, so restrict `--tools` and raise `--timeout` when evaluating them.
